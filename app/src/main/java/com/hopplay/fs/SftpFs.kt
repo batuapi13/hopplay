@@ -1,12 +1,17 @@
 package com.hopplay.fs
 
+import android.content.Context
 import android.net.Uri
+import android.util.Base64
 import com.hopplay.data.Connection
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.sftp.FileMode
 import net.schmizz.sshj.sftp.RemoteFile
 import net.schmizz.sshj.sftp.SFTPClient
-import net.schmizz.sshj.transport.verification.PromiscuousVerifier
+import net.schmizz.sshj.transport.verification.HostKeyVerifier
+import java.security.MessageDigest
+import java.security.PublicKey
+import java.util.Locale
 
 abstract class NetworkFs(protected val c: Connection) : RemoteFs {
     override val rootPath: String = "/" + c.path.trim('/')
@@ -15,10 +20,41 @@ abstract class NetworkFs(protected val c: Connection) : RemoteFs {
         Uri.parse("hopplay://${c.id}" + Uri.encode(path, "/"))
 
     protected fun join(parent: String, name: String) =
-        if (parent.endsWith("/")) parent + name else "$parent/$name"
+        if (parent.endsWith("/")) parent + name else "$"+"parent/$"+"name"
 }
 
-class SftpFs(c: Connection) : NetworkFs(c) {
+/**
+ * Trust on first use: pin the first SSH host key seen for host:port, and refuse
+ * silent replacement. This pin is independent of saved connection credentials.
+ */
+class TofuHostKeyVerifier(ctx: Context) : HostKeyVerifier {
+    private val prefs = ctx.getSharedPreferences("hopplay_sftp_known_hosts", Context.MODE_PRIVATE)
+
+    override fun verify(hostname: String, port: Int, key: PublicKey): Boolean {
+        val identity = "${hostname.lowercase(Locale.ROOT)}:$"+"port"
+        val fingerprint = Base64.encodeToString(
+            MessageDigest.getInstance("SHA-256").digest(key.encoded),
+            Base64.NO_WRAP,
+        )
+        synchronized(prefs) {
+            val known = prefs.getString(identity, null)
+            if (known != null) {
+                if (known != fingerprint) {
+                    throw SecurityException("SFTP host key changed for $"+"identity. Connection blocked. Verify the server key before resetting trust.")
+                }
+                return true
+            }
+            // commit() ensures the key is saved before the connection is trusted.
+            check(prefs.edit().putString(identity, fingerprint).commit()) {
+                "Unable to save SFTP server host key for $"+"identity"
+            }
+            return true
+        }
+    }
+}
+
+class SftpFs(c: Connection, ctx: Context) : NetworkFs(c) {
+    private val verifier = TofuHostKeyVerifier(ctx)
     private var ssh: SSHClient? = null
     private var sftp: SFTPClient? = null
 
@@ -26,15 +62,24 @@ class SftpFs(c: Connection) : NetworkFs(c) {
     private fun client(): SFTPClient {
         val cur = sftp
         if (cur != null && ssh?.isConnected == true) return cur
+        runCatching { sftp?.close() }
         runCatching { ssh?.disconnect() }
+        sftp = null
+        ssh = null
         val k = SSHClient()
-        // TODO: trust-on-first-use host key store.
-        k.addHostKeyVerifier(PromiscuousVerifier())
+        k.addHostKeyVerifier(verifier)
         k.connectTimeout = 15_000
-        k.connect(c.host, if (c.port > 0) c.port else 22)
-        k.authPassword(c.user, c.password)
-        ssh = k
-        return k.newSFTPClient().also { sftp = it }
+        try {
+            k.connect(c.host, if (c.port > 0) c.port else 22)
+            k.authPassword(c.user, c.password)
+            val active = k.newSFTPClient()
+            ssh = k
+            sftp = active
+            return active
+        } catch (t: Throwable) {
+            runCatching { k.disconnect() }
+            throw t
+        }
     }
 
     override fun list(path: String): List<FsEntry> =
