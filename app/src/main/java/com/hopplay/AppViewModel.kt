@@ -38,6 +38,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     init { refreshConnections() }
 
+    fun deleteTrustSession(id: String) { hp.registry.invalidate(id) }
+
     fun refreshConnections() {
         connections.clear()
         connections.addAll(hp.store.all())
