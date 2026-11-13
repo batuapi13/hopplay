@@ -10,6 +10,17 @@
 - **Appearance:** HopPlay adaptive launcher icon and dark navy/teal Material3 UI.
 - **Engine:** Media3 ExoPlayer with decoder-init fallback. The player is recreated between separate playback sessions to avoid leaking hardware decoder state.
 
+## Player UX (libVLC, SFTP)
+
+Auto-hiding overlay (tap to toggle, 4 s), prev/next, ±10 s, seek slider (seeks on release), audio and subtitle pickers (embedded + external SRT/ASS/SSA/VTT), speed 0.25–2x, aspect ratio, orientation (Auto/Landscape/Portrait), screen lock, gestures (double-tap ±10 s, horizontal seek, left-edge brightness, right-edge volume, long-press 2x), buffering/error states with diagnostics export, periodic resume saving.
+
+| Item | Status |
+|---|---|
+| JVM unit tests (gesture/seek/format/queue logic) | Automated in CI |
+| Debug APK builds | Automated in CI |
+| Gestures, overlay, dialogs, subtitles, lock, orientation on real hardware | **Pending physical-device testing** |
+| Subtitle size/colour (reloads media at current position) | **Pending physical-device testing** |
+
 ## Android build
 Requires JDK 17 and Android SDK 35. Minimum Android API 26.
 
