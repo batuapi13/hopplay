@@ -1,26 +1,43 @@
 # HopPlay
 
-Folder-first Android media player (Kotlin, Jetpack Compose, minSdk 26) for local, SFTP and SMB/Windows shares, with automatic next-file playback.
+**Folder-first Android media player.** Stream your videos and music directly from SSH/SFTP without installing a media server. Local folders and SMB shares are also supported.
 
 ## Features
-- **Sources:** local folders (Storage Access Framework), SFTP (sshj), SMB/Windows shares (smbj). Saved connections are stored in Keystore-backed `EncryptedSharedPreferences`.
-- **Streaming:** `RemoteFs` (`list`, `stat`, `open` → random-access `RangeFile`) feeds a custom Media3 `DataSource` that reads byte ranges, so remote files stream and seek without a full download.
-- **Queue:** the current folder is loaded as a playlist in natural sort order (`ep2` < `ep10`); the next playable file starts automatically. Playback position is remembered per file.
-- **Player:** speed 0.25x–4x, audio-track and subtitle pickers (embedded tracks plus sidecar `.srt/.ass/.ssa/.vtt` named `<video>.*`), gestures: horizontal swipe = seek, vertical swipe right = volume, left = brightness, double-tap = ±10s, single tap = controls.
-- **Engine:** Media3 ExoPlayer (mp4, mkv, webm, ts, avi, flv, mp3, flac, ogg, opus, wav, …). Chosen over libmpv because it builds reliably with plain Gradle and keeps the APK small. For AC3/EAC3/DTS/TrueHD etc., build with the optional FFmpeg decoder: `gradle assembleDebug -Pffmpeg=true` (uses `org.jellyfin.media3:media3-ffmpeg-decoder`; check the version exists on Maven Central).
-- **Size:** arm64-v8a-only ABI split, R8 + resource shrinking in release, no icon packs.
+- **Direct SFTP:** SSHJ with password authentication and trust-on-first-use host-key pinning. A host-key viewer and explicit reset are included.
+- **Streaming:** random-access byte-range reads support playback and seeks without downloading the entire file.
+- **Folders and queues:** natural sorting, automatic next-file playback and per-file resume.
+- **Player:** audio/subtitle track selection, playback speed, swipe seek/volume/brightness, double-tap skip, Auto/Land/Port orientation.
+- **Appearance:** HopPlay adaptive launcher icon and dark navy/teal Material3 UI.
+- **Engine:** Media3 ExoPlayer with decoder-init fallback. The player is recreated between separate playback sessions to avoid leaking hardware decoder state.
 
-## Build
-Requires JDK 17 and the Android SDK (platform 34).
+## Android build
+Requires JDK 17 and Android SDK 35. Minimum Android API 26.
 
+```bash
+gradle assembleDebug
+gradle assembleDebug -Pffmpeg=true   # adds the FFmpeg AUDIO decoder extension
+gradle testDebugUnitTest
 ```
-gradle assembleDebug        # app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
-gradle assembleRelease      # minified, debug-signed
-```
-CI (`.github/workflows/android.yml`) builds the debug APK and uploads it as an artifact. No Gradle wrapper is committed; run `gradle wrapper` once locally if you want one.
 
-## Status / known limits
-- Written without a local Android toolchain: the first CI run may surface compile fixes.
-- SFTP host keys are accepted without verification (TODO: trust-on-first-use); SFTP is password-only (key auth planned).
-- Remote reads are sequential per open; SFTP throughput is bounded by round-trip time.
-- Planned: WebDAV/FTP backends, background playback service/MediaSession, external subtitle picker, landscape lock.
+The GitHub Actions PR build runs tests and assembles the FFmpeg-enabled debug APK as the `hopplay-ffmpeg-debug-apk` artifact.
+
+## Codec support: verification matrix
+HopPlay accepts extensions including MKV, MP4/M4V, MOV, WebM, MPEG-TS, AVI, FLV, MP3, FLAC, OGG, Opus and WAV. **Recognizing a file extension does not guarantee its video/audio tracks can be decoded.**
+
+| Category | Representative tracks to test | Expected route | Current verification |
+| --- | --- | --- | --- |
+| Video | H.264/AVC, H.265/HEVC | Android MediaCodec | Prior Snapdragon decoder failure reported; reinitialization fix needs device retest |
+| Video | VP8, VP9, AV1 | Android MediaCodec where available | Device test needed |
+| Video | MPEG-2, MPEG-4 Part 2 | Android decoder if available | Device test needed |
+| Audio | AAC, MP3, FLAC, Opus, Vorbis, PCM | Platform / Media3 | Device test needed |
+| Audio | AC-3, E-AC-3, DTS variants, TrueHD | FFmpeg audio extension where supported | FFmpeg variant must build and be tested |
+| Subtitle | embedded and matching sidecar SRT/VTT/ASS/SSA | Media3 text renderer | Device test needed |
+
+**Important:** the Jellyfin Media3 FFmpeg extension is for *audio*, not a general software video-decoding fallback. To cover unsupported or broken video codecs independently of the phone's MediaCodec, HopPlay would need an embedded software video decoder such as libmpv/FFmpeg, with a native Android build and device tests. Broad playback compatibility is the product goal, **not yet a verified claim**.
+
+## Known limitations
+- No SFTP private-key authentication yet; password authentication works.
+- Hardware video decoder/runtime failures still need verification against the reported play A → close → switch folders → play B scenario.
+- No dedicated background playback service / MediaSession.
+- No external subtitle picker or video software-decoding fallback yet.
+- Release signing and release minification are not yet production-ready.
