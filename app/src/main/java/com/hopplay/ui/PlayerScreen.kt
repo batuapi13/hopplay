@@ -95,6 +95,7 @@ fun PlayerScreen(c: PlayerController, onBack: () -> Unit) {
     var overlay by remember { mutableStateOf<String?>(null) }
     var dialog by remember { mutableStateOf<Int?>(null) } // 0 audio, 1 subtitles, 2 speed
     var scrubbing by remember { mutableStateOf<Float?>(null) }
+    var orient by remember { mutableStateOf(0) } // 0 auto, 1 landscape, 2 portrait
 
     DisposableEffect(player) {
         val l = object : Player.Listener {
@@ -113,6 +114,7 @@ fun PlayerScreen(c: PlayerController, onBack: () -> Unit) {
         ctl.hide(WindowInsetsCompat.Type.systemBars())
         ctl.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         onDispose {
+            activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             ctl.show(WindowInsetsCompat.Type.systemBars())
             activity.window.attributes = activity.window.attributes.also { it.screenBrightness = -1f }
         }
@@ -226,6 +228,14 @@ fun PlayerScreen(c: PlayerController, onBack: () -> Unit) {
             ) {
                 TextButton(onClick = onBack) { Text("←", color = Color.White) }
                 Text(title, color = Color.White, maxLines = 1, modifier = Modifier.weight(1f))
+                TextButton(onClick = {
+                    orient = (orient + 1) % 3
+                    activity.requestedOrientation = when (orient) {
+                        1 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                        2 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                        else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    }
+                }) { Text(listOf("Auto", "Land", "Port")[orient], color = Color.White) }
                 TextButton(onClick = { dialog = 0 }) { Text("Audio", color = Color.White) }
                 TextButton(onClick = { dialog = 1 }) { Text("Subs", color = Color.White) }
                 TextButton(onClick = { dialog = 2 }) { Text("${speed}x", color = Color.White) }
