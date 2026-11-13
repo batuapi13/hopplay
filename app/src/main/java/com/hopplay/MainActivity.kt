@@ -18,6 +18,7 @@ import com.hopplay.data.Protocol
 import com.hopplay.ui.BrowseScreen
 import com.hopplay.ui.HomeScreen
 import com.hopplay.ui.PlayerScreen
+import com.hopplay.ui.VlcPlayerScreen
 
 class MainActivity : ComponentActivity() {
     private val vm: AppViewModel by viewModels()
@@ -60,6 +61,12 @@ private fun Root(vm: AppViewModel) {
         Screen.BROWSE -> {
             BackHandler { if (!vm.up()) vm.home() }
             BrowseScreen(vm)
+        }
+        Screen.VLC -> {
+            val connection = vm.current
+            if (connection != null && vm.vlcFiles.isNotEmpty()) {
+                VlcPlayerScreen(connection, vm.vlcFiles, vm.vlcStartIndex, onBack = vm::closeVlc)
+            }
         }
         Screen.PLAYER -> {
             BackHandler { vm.closePlayer() }
