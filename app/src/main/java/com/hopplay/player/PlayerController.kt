@@ -9,6 +9,8 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Tracks
 import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -23,6 +25,9 @@ import com.hopplay.data.ResumeStore
  * resources and renderer state cannot leak between playback sessions.
  */
 class PlayerController(private val app: Application, private val resume: ResumeStore) {
+    val diagnostics = PlaybackDiagnostics()
+    fun exportDiagnostics(): String = diagnostics.exportText()
+
     private var preferSoftwareVideo = false
     var player: ExoPlayer by mutableStateOf(createPlayer())
         private set
@@ -52,7 +57,22 @@ class PlayerController(private val app: Application, private val resume: ResumeS
             .build()
 
         fresh.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                diagnostics.failure(error)
+            }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                diagnostics.record("Tracks: " + diagnostics.trackSummary(tracks))
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                diagnostics.record("Player state=" + state + " (1=idle,2=buffering,3=ready,4=ended)")
+            }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val extension = mediaItem?.localConfiguration?.uri?.lastPathSegment
+                    ?.substringAfterLast('.', "unknown")?.take(12) ?: "none"
+                diagnostics.record("Media transition reason=" + reason + " fileExt=" + extension)
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) lastId?.let(resume::clear)
                 lastId = mediaItem?.mediaId
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
@@ -69,6 +89,7 @@ class PlayerController(private val app: Application, private val resume: ResumeS
 
     fun play(items: List<MediaItem>, startIndex: Int) {
         if (items.isEmpty()) return
+        diagnostics.record("New playlist: count=" + items.size + " startIndex=" + startIndex)
         // A new player is preferable to reusing a potentially failed hardware
         // decoder across unrelated MKV files/folders.
         player.stop()
@@ -96,6 +117,7 @@ class PlayerController(private val app: Application, private val resume: ResumeS
         player.stop()
         player.release()
         preferSoftwareVideo = true
+        diagnostics.record("Manual retry using software-decoder preference")
         player = createPlayer()
         lastId = items[index].mediaId
         player.setMediaItems(items, index, position)
@@ -112,6 +134,7 @@ class PlayerController(private val app: Application, private val resume: ResumeS
     }
 
     fun stop() {
+        diagnostics.record("Closing playback")
         savePosition()
         player.stop()
         player.clearMediaItems()
