@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.media.AudioManager
 import android.view.ViewGroup
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -87,6 +89,21 @@ fun PlayerScreen(c: PlayerController, onBack: () -> Unit) {
 
     var controlsVisible by remember { mutableStateOf(true) }
     var playbackError by remember { mutableStateOf<String?>(player.playerError?.message) }
+    var exportStatus by remember { mutableStateOf<String?>(null) }
+    val exportLog = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val stream = ctx.contentResolver.openOutputStream(uri)
+                    ?: throw java.io.IOException("Cannot open selected document")
+                stream.use { it.write(c.exportDiagnostics().toByteArray(Charsets.UTF_8)) }
+                exportStatus = "Diagnostic log saved"
+            } catch (e: Exception) {
+                exportStatus = "Log export failed: " + (e.message ?: "I/O error")
+            }
+        }
+    }
     var tick by remember { mutableLongStateOf(0L) }
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var pos by remember { mutableLongStateOf(0L) }
@@ -233,6 +250,10 @@ fun PlayerScreen(c: PlayerController, onBack: () -> Unit) {
                         player.play()
                     }
                 }) { Text("Retry with software decoder", color = Color.White) }
+                TextButton(onClick = {
+                    exportLog.launch("hopplay-playback-" + System.currentTimeMillis() + ".txt")
+                }) { Text("Export diagnostic log", color = Color.White) }
+                exportStatus?.let { Text(it, color = Color.White) }
             }
         }
 
