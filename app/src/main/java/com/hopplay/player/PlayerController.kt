@@ -1,6 +1,10 @@
 package com.hopplay.player
 
 import android.app.Application
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -19,7 +23,8 @@ import com.hopplay.data.ResumeStore
  * resources and renderer state cannot leak between playback sessions.
  */
 class PlayerController(private val app: Application, private val resume: ResumeStore) {
-    var player: ExoPlayer = createPlayer()
+    private var preferSoftwareVideo = false
+    var player: ExoPlayer by mutableStateOf(createPlayer())
         private set
 
     private var lastId: String? = null
@@ -29,7 +34,13 @@ class PlayerController(private val app: Application, private val resume: ResumeS
             app,
             DefaultRenderersFactory(app)
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
-                .setEnableDecoderFallback(true),
+                .setEnableDecoderFallback(true)
+                .setMediaCodecSelector(MediaCodecSelector { mimeType, secure, tunnel ->
+                    val available = MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, secure, tunnel)
+                    if (preferSoftwareVideo && mimeType.startsWith("video/")) {
+                        available.sortedByDescending { it.softwareOnly }
+                    } else available
+                }),
             DefaultMediaSourceFactory(
                 DataSource.Factory { RoutingDataSource(app) },
                 DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
@@ -63,6 +74,7 @@ class PlayerController(private val app: Application, private val resume: ResumeS
         player.stop()
         player.release()
         lastId = null
+        preferSoftwareVideo = false
         player = createPlayer()
 
         val startPos = items.getOrNull(startIndex)?.mediaId?.let(resume::get) ?: C.TIME_UNSET
@@ -70,6 +82,26 @@ class PlayerController(private val app: Application, private val resume: ResumeS
         player.setMediaItems(items, startIndex, startPos)
         player.prepare()
         player.playWhenReady = true
+    }
+
+    /**
+     * Retry the current item with platform software MediaCodec decoders first.
+     * No FFmpeg VIDEO renderer is bundled, so this may not work on all devices.
+     */
+    fun retryWithSoftwareVideo(): Boolean {
+        if (preferSoftwareVideo || player.mediaItemCount == 0) return false
+        val items = (0 until player.mediaItemCount).map(player::getMediaItemAt)
+        val index = player.currentMediaItemIndex.coerceIn(0, items.lastIndex)
+        val position = player.currentPosition.coerceAtLeast(0L)
+        player.stop()
+        player.release()
+        preferSoftwareVideo = true
+        player = createPlayer()
+        lastId = items[index].mediaId
+        player.setMediaItems(items, index, position)
+        player.prepare()
+        player.playWhenReady = true
+        return true
     }
 
     fun savePosition() {
