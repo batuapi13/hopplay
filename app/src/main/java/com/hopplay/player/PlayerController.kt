@@ -14,42 +14,57 @@ import androidx.media3.extractor.DefaultExtractorsFactory
 import com.hopplay.data.ResumeStore
 
 /**
- * Wraps ExoPlayer. The whole folder is loaded as a playlist, so the next file
- * starts automatically; positions are remembered per media id.
+ * One ExoPlayer instance per opened folder playlist. Stop and release the
+ * previous instance before opening another folder so Qualcomm MediaCodec
+ * resources and renderer state cannot leak between playback sessions.
  */
-class PlayerController(app: Application, private val resume: ResumeStore) {
-    val player: ExoPlayer = ExoPlayer.Builder(
-        app,
-        DefaultRenderersFactory(app).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER),
-        DefaultMediaSourceFactory(
-            DataSource.Factory { RoutingDataSource(app) },
-            DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
-        ),
-    )
-        .setHandleAudioBecomingNoisy(true)
-        .setAudioAttributes(AudioAttributes.DEFAULT, true)
-        .setSeekParameters(SeekParameters.CLOSEST_SYNC)
-        .build()
+class PlayerController(private val app: Application, private val resume: ResumeStore) {
+    var player: ExoPlayer = createPlayer()
+        private set
 
     private var lastId: String? = null
 
-    init {
-        player.addListener(object : Player.Listener {
+    private fun createPlayer(): ExoPlayer {
+        val fresh = ExoPlayer.Builder(
+            app,
+            DefaultRenderersFactory(app)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+                .setEnableDecoderFallback(true),
+            DefaultMediaSourceFactory(
+                DataSource.Factory { RoutingDataSource(app) },
+                DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
+            ),
+        )
+            .setHandleAudioBecomingNoisy(true)
+            .setAudioAttributes(AudioAttributes.DEFAULT, true)
+            .setSeekParameters(SeekParameters.CLOSEST_SYNC)
+            .build()
+
+        fresh.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) lastId?.let(resume::clear)
                 lastId = mediaItem?.mediaId
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
-                    mediaItem?.mediaId?.let(resume::get)?.let { player.seekTo(it) }
+                    mediaItem?.mediaId?.let(resume::get)?.let { fresh.seekTo(it) }
                 }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (!isPlaying) savePosition()
+                if (!isPlaying && fresh === player) savePosition()
             }
         })
+        return fresh
     }
 
     fun play(items: List<MediaItem>, startIndex: Int) {
+        if (items.isEmpty()) return
+        // A new player is preferable to reusing a potentially failed hardware
+        // decoder across unrelated MKV files/folders.
+        player.stop()
+        player.release()
+        lastId = null
+        player = createPlayer()
+
         val startPos = items.getOrNull(startIndex)?.mediaId?.let(resume::get) ?: C.TIME_UNSET
         lastId = items.getOrNull(startIndex)?.mediaId
         player.setMediaItems(items, startIndex, startPos)
