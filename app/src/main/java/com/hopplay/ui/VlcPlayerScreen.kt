@@ -88,7 +88,7 @@ fun VlcPlayerScreen(
     }
 
     DisposableEffect(mediaPlayer) {
-        mediaPlayer.attachViews(videoLayout, null, false, false)
+        mediaPlayer.attachViews(videoLayout, null, true, false)
         mediaPlayer.setEventListener { event ->
             when (event.type) {
                 MediaPlayer.Event.Playing -> {
