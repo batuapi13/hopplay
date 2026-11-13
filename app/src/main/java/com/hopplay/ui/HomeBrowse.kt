@@ -1,6 +1,19 @@
 package com.hopplay.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.ui.platform.LocalContext
@@ -163,32 +176,59 @@ fun BrowseScreen(vm: AppViewModel) {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.statusBarsPadding()) {
             Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { if (!vm.up()) vm.home() }) { Text("←") }
+                IconButton(onClick = { if (!vm.up()) vm.home() }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Up one folder")
+                }
                 Column(Modifier.weight(1f)) {
                     Text(vm.current?.name.orEmpty(), style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                    Text(vm.stack.lastOrNull().orEmpty(), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    Breadcrumbs(vm.stack.toList(), onJump = vm::jumpTo)
                 }
             }
             Box(Modifier.fillMaxSize()) {
                 when {
-                    vm.loading -> Text("Opening folder…", Modifier.padding(16.dp))
+                    vm.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                     vm.error != null -> Text("Error: ${vm.error}", Modifier.padding(16.dp))
-                    vm.entries.isEmpty() -> Text("Nothing playable here.", Modifier.padding(16.dp))
+                    vm.entries.isEmpty() -> Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Filled.FolderOpen, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Nothing playable here", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     else -> LazyColumn {
                         items(vm.entries, key = { it.path }) { e ->
                             val playable = !e.isDir && com.hopplay.fs.MediaTypes.isPlayable(e.name)
-                            Text(
-                                (if (e.isDir) "📁 " else if (playable) "🎞 " else "💬 ") + e.name,
-                                Modifier.fillMaxWidth()
+                            Row(
+                                Modifier.fillMaxWidth().heightIn(min = 52.dp)
                                     .clickable(enabled = e.isDir || playable) { if (e.isDir) vm.openDir(e) else vm.play(e) }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                maxLines = 2,
-                            )
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    if (e.isDir) Icons.Filled.Folder else if (playable) Icons.Filled.Movie else Icons.Filled.Subtitles,
+                                    contentDescription = null,
+                                    tint = if (e.isDir) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(e.name, Modifier.padding(start = 16.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun Breadcrumbs(stack: List<String>, onJump: (Int) -> Unit) {
+    val scroll = rememberScrollState()
+    LaunchedEffect(stack.size) { scroll.scrollTo(scroll.maxValue) }
+    Row(Modifier.horizontalScroll(scroll), verticalAlignment = Alignment.CenterVertically) {
+        stack.forEachIndexed { i, path ->
+            val label = path.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }
+            if (i > 0) Text(" › ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                label, style = MaterialTheme.typography.bodySmall, maxLines = 1,
+                color = if (i == stack.lastIndex) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable(enabled = i < stack.lastIndex) { onJump(i) }.padding(vertical = 6.dp),
+            )
         }
     }
 }

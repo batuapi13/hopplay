@@ -77,6 +77,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    fun jumpTo(stackIndex: Int) {
+        if (stackIndex !in 0 until stack.lastIndex) return
+        while (stack.lastIndex > stackIndex) stack.removeAt(stack.lastIndex)
+        navigate(stack.last(), push = false)
+    }
+
     fun home() {
         screen = Screen.HOME
         entries = emptyList()

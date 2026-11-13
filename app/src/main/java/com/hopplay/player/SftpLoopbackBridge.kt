@@ -86,15 +86,20 @@ class SftpLoopbackBridge(
                     if (method == "HEAD") return
                     val buffer = ByteArray(64 * 1024)
                     var position = start
+                    val began = System.nanoTime()
+                    var slowReads = 0
                     while (position <= end && running.get()) {
                         val count = minOf(buffer.size.toLong(), end - position + 1).toInt()
+                        val readStart = System.nanoTime()
                         val read = file.read(position, buffer, 0, count)
+                        if (System.nanoTime() - readStart > 2_000_000_000L) slowReads++
                         if (read <= 0) break
                         output.write(buffer, 0, read)
                         position += read
                     }
                     output.flush()
-                    log("SFTP VLC range served bytes=" + (position - start))
+                    log("SFTP VLC range served bytes=" + (position - start) +
+                        " ms=" + (System.nanoTime() - began) / 1_000_000 + " slowReads=" + slowReads)
                 }
             } catch (e: Exception) {
                 log("SFTP VLC bridge error: " + e.javaClass.simpleName)
