@@ -1,45 +1,68 @@
 package com.hopplay.ui
 
 import android.app.Activity
+import android.content.Context
 import android.content.pm.ActivityInfo
+import android.media.AudioManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Slider
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.composed
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.hopplay.HopPlayApp
 import com.hopplay.data.Connection
 import com.hopplay.fs.FsEntry
+import com.hopplay.player.BUFFERING_WARNING_MS
+import com.hopplay.player.CONTROLS_AUTO_HIDE_MS
+import com.hopplay.player.DragAxis
+import com.hopplay.player.OrientationMode
+import com.hopplay.player.PlayState
 import com.hopplay.player.PlaybackDiagnostics
+import com.hopplay.player.RESUME_SAVE_INTERVAL_MS
 import com.hopplay.player.SftpLoopbackBridge
+import com.hopplay.player.VlcSession
+import com.hopplay.player.dragLevel
+import com.hopplay.player.dragSeekTarget
+import com.hopplay.player.formatTime
+import com.hopplay.ui.player.FeedbackChip
+import com.hopplay.ui.player.GestureActions
+import com.hopplay.ui.player.GestureLayer
+import com.hopplay.ui.player.PlayerBottomBar
+import com.hopplay.ui.player.PlayerStatusIndicator
+import com.hopplay.ui.player.PlayerTopBar
+import com.hopplay.ui.player.SettingsDialog
+import com.hopplay.ui.player.TrackDialog
 import kotlinx.coroutines.delay
-import org.videolan.libvlc.LibVLC
-import org.videolan.libvlc.Media
-import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.util.VLCVideoLayout
+
+private enum class Dialog { NONE, AUDIO, SUBTITLES, SETTINGS }
 
 /**
  * Embedded VLC software-decoding player. SFTP itself is still handled by SSHJ
@@ -59,140 +82,244 @@ fun VlcPlayerScreen(
     val bridge = remember(connection.id, files) {
         SftpLoopbackBridge(app.registry.get(connection.id), files, diagnostics::record)
     }
-    val vlc = remember { LibVLC(ctx, arrayListOf("--no-video-title-show", "--network-caching=500")) }
-    val mediaPlayer = remember(vlc) { MediaPlayer(vlc) }
-    val videoLayout = remember { VLCVideoLayout(ctx) }
-    var index by remember(files) { mutableStateOf(initialIndex.coerceIn(0, files.lastIndex)) }
-    var playing by remember { mutableStateOf(false) }
-    var pos by remember { mutableLongStateOf(0L) }
-    var length by remember { mutableLongStateOf(0L) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var orientation by remember { mutableStateOf(0) }
-    var exportStatus by remember { mutableStateOf<String?>(null) }
+    fun key(i: Int) = connection.id + "|" + files[i].path
+    val session = remember(bridge) {
+        VlcSession(
+            ctx = ctx, files = files, urlFor = bridge::url, diagnostics = diagnostics,
+            resumeGet = { app.resume.get(key(it)) },
+            resumePut = { i, p -> app.resume.put(key(i), p) },
+            resumeClear = { app.resume.clear(key(it)) },
+            startIndex = initialIndex,
+        )
+    }
+
+    var controlsVisible by remember { mutableStateOf(true) }
+    var interaction by remember { mutableStateOf(0) }
+    var dialog by remember { mutableStateOf(Dialog.NONE) }
+    var locked by remember { mutableStateOf(false) }
+    var orientation by remember { mutableStateOf(OrientationMode.AUTO) }
+    var feedback by remember { mutableStateOf<String?>(null) }
+    var feedbackToken by remember { mutableStateOf(0) }
+    var longBuffering by remember { mutableStateOf(false) }
+    val seekDrag = remember { SeekDragState() }
+
+    fun showFeedback(text: String) { feedback = text; feedbackToken++ }
+    fun poke() { interaction++ }
+
     val saveLog = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
             runCatching {
                 ctx.contentResolver.openOutputStream(uri)?.use {
                     it.write(diagnostics.exportText().toByteArray(Charsets.UTF_8))
                 } ?: error("Cannot open diagnostic destination")
-            }.onSuccess { exportStatus = "Log saved" }
-                .onFailure { exportStatus = "Unable to save log: " + it.javaClass.simpleName }
+            }.onSuccess { showFeedback("Log saved") }
+                .onFailure { showFeedback("Unable to save log") }
+        }
+    }
+    fun exportLog() {
+        diagnostics.record("Manual export index=${session.index} posMs=${session.positionMs} state=${session.state}")
+        saveLog.launch("hopplay-vlc-${System.currentTimeMillis()}.txt")
+    }
+    val pickSubtitle = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            showFeedback(if (session.addExternalSubtitle(uri)) "Subtitle loaded" else "Could not load subtitle")
         }
     }
 
-    fun savePosition() {
-        val item = files.getOrNull(index) ?: return
-        val key = connection.id + "|" + item.path
-        if (pos < 5_000L || length > 0 && pos >= length - 5_000L) app.resume.clear(key)
-        else app.resume.put(key, pos)
+    // Auto-hide: restarts on any interaction; never hides while paused, in a dialog, or on a problem state.
+    val stickyState = session.state != PlayState.PLAYING
+    LaunchedEffect(controlsVisible, interaction, dialog, stickyState) {
+        if (controlsVisible && dialog == Dialog.NONE && !stickyState) {
+            delay(CONTROLS_AUTO_HIDE_MS)
+            controlsVisible = false
+        }
+    }
+    LaunchedEffect(feedbackToken) {
+        if (feedback != null) { delay(1200); feedback = null }
+    }
+    LaunchedEffect(session.bufferingSinceMs, session.state) {
+        longBuffering = false
+        if (session.bufferingSinceMs != 0L && session.state == PlayState.BUFFERING) {
+            delay(BUFFERING_WARNING_MS)
+            longBuffering = true
+            diagnostics.record("VLC buffering exceeded ${BUFFERING_WARNING_MS}ms posMs=${session.positionMs}")
+        }
+    }
+    LaunchedEffect(session) {
+        session.load(initialIndex)
+        while (true) {
+            delay(RESUME_SAVE_INTERVAL_MS)
+            session.savePosition()
+        }
     }
 
-    DisposableEffect(mediaPlayer) {
-        mediaPlayer.attachViews(videoLayout, null, true, false)
-        mediaPlayer.setEventListener { event ->
-            when (event.type) {
-                MediaPlayer.Event.Playing -> {
-                    playing = true
-                    error = null
-                    diagnostics.record("VLC playing fileExt=" + files[index].name.substringAfterLast('.', ""))
-                }
-                MediaPlayer.Event.Paused -> playing = false
-                MediaPlayer.Event.Stopped -> playing = false
-                MediaPlayer.Event.EncounteredError -> {
-                    playing = false
-                    error = "VLC playback error. Export the diagnostic log."
-                    diagnostics.record("VLC EncounteredError index=" + index)
-                }
-                MediaPlayer.Event.EndReached -> {
-                    val ended = files.getOrNull(index)
-                    if (ended != null) app.resume.clear(connection.id + "|" + ended.path)
-                    if (index < files.lastIndex) index++ else playing = false
-                }
-                MediaPlayer.Event.Buffering -> diagnostics.record("VLC buffering")
+    LaunchedEffect(orientation) {
+        activity.requestedOrientation = when (orientation) {
+            OrientationMode.AUTO -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            OrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            OrientationMode.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+    }
+
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, session) {
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_STOP) {
+                session.savePosition()
+                if (session.state == PlayState.PLAYING) session.player.pause()
             }
         }
+        lifecycle.addObserver(obs)
+        onDispose { lifecycle.removeObserver(obs) }
+    }
+
+    val originalBrightness = remember { activity.window.attributes.screenBrightness }
+    DisposableEffect(session) {
         onDispose {
-            mediaPlayer.setEventListener(null)
-            runCatching { savePosition() }
-            mediaPlayer.stop()
-            mediaPlayer.detachViews()
-            mediaPlayer.release()
-            vlc.release()
+            session.release()
             bridge.close()
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            activity.window.attributes = activity.window.attributes.also { it.screenBrightness = originalBrightness }
         }
     }
 
-    LaunchedEffect(index) {
-        val item = files[index]
-        diagnostics.record("VLC open index=" + index + " extension=" + item.name.substringAfterLast('.', "") + " softwareDecode=true")
-        mediaPlayer.stop()
-        error = null
-        val media = Media(vlc, android.net.Uri.parse(bridge.url(index)))
-        // Software decoding is deliberate for Hi10P AVC / Main10 HEVC / MPEG4 AVI.
-        media.setHWDecoderEnabled(false, false)
-        media.addOption(":network-caching=500")
-        mediaPlayer.media = media
-        media.release()
-        mediaPlayer.play()
-        val resume = app.resume.get(connection.id + "|" + item.path)
-        if (resume != null && resume > 0L) {
-            delay(600)
-            mediaPlayer.time = resume
+    BackHandler {
+        when {
+            locked -> showFeedback("Screen locked")
+            dialog != Dialog.NONE -> dialog = Dialog.NONE
+            else -> onBack()
         }
     }
 
-    LaunchedEffect(mediaPlayer) {
-        var lastPos = -1L
-        var stalledFor = 0
-        while (true) {
-            pos = mediaPlayer.time.coerceAtLeast(0)
-            length = mediaPlayer.length.coerceAtLeast(0)
-            if (playing && pos == lastPos) stalledFor++ else stalledFor = 0
-            if (stalledFor == 20) diagnostics.record("VLC stall 10s at ms=" + pos)
-            lastPos = pos
-            delay(500)
-        }
-    }
-
-    BackHandler { onBack() }
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(factory = { videoLayout }, modifier = Modifier.fillMaxSize())
-        Column(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                .background(Color(0xCC0C1233)).padding(top = 32.dp, start = 8.dp, end = 8.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) { Text("←", color = Color.White) }
-                Text(files[index].name, color = Color.White, maxLines = 1, modifier = Modifier.weight(1f))
-                TextButton(onClick = {
-                    orientation = (orientation + 1) % 3
-                    activity.requestedOrientation = when (orientation) {
-                        1 -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                        2 -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-                        else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                    }
-                }) { Text(listOf("Auto", "Land", "Port")[orientation], color = Color.White) }
-                TextButton(onClick = {
-                    diagnostics.record("Manual export index=" + index + " posMs=" + pos)
-                    saveLog.launch("hopplay-vlc-" + System.currentTimeMillis() + ".txt")
-                }) { Text("Log", color = Color.White) }
-            }
-            error?.let { Text(it, color = Color.Red, modifier = Modifier.padding(8.dp)) }
-            exportStatus?.let { Text(it, color = Color.White) }
-        }
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xCC0C1233)).padding(8.dp)) {
-            Slider(value = if (length > 0) (pos.toFloat() / length).coerceIn(0f, 1f) else 0f,
-                onValueChange = { if (length > 0) mediaPlayer.time = (it * length).toLong() })
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                TextButton(onClick = { savePosition(); if (index > 0) index-- }) { Text("⏮", color = Color.White) }
-                TextButton(onClick = { mediaPlayer.time = (pos - 10_000).coerceAtLeast(0) }) { Text("−10", color = Color.White) }
-                TextButton(onClick = { if (playing) mediaPlayer.pause() else mediaPlayer.play() }) {
-                    Text(if (playing) "⏸" else "▶", color = Color.White)
+    val audio = remember { ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    val gestures = remember(session) {
+        GestureActions(
+            onTap = { controlsVisible = !controlsVisible; poke() },
+            onDoubleTap = { left ->
+                session.seekBy(if (left) -10_000 else 10_000)
+                showFeedback(if (left) "« 10s" else "10s »")
+            },
+            onSeekStart = { seekDrag.start = session.positionMs },
+            onSeekDrag = { dx, w ->
+                val t = dragSeekTarget(seekDrag.start, dx, w, session.lengthMs)
+                seekDrag.target = t
+                showFeedback("${formatTime(t)} / ${formatTime(session.lengthMs)}")
+            },
+            onSeekEnd = { session.seekTo(seekDrag.target) },
+            onLevelStart = { axis ->
+                if (axis == DragAxis.BRIGHTNESS) {
+                    val b = activity.window.attributes.screenBrightness
+                    seekDrag.level = if (b < 0f) 0.5f else b
+                } else {
+                    val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                    seekDrag.level = audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max
                 }
-                TextButton(onClick = { mediaPlayer.time = pos + 10_000 }) { Text("+10", color = Color.White) }
-                TextButton(onClick = { savePosition(); if (index < files.lastIndex) index++ }) { Text("⏭", color = Color.White) }
+            },
+            onLevelDrag = { axis, dy, h ->
+                if (axis == DragAxis.BRIGHTNESS) {
+                    val v = dragLevel(seekDrag.level, dy, h, min = 0.02f)
+                    activity.window.attributes = activity.window.attributes.also { it.screenBrightness = v }
+                    showFeedback("Brightness ${(v * 100).toInt()}%")
+                } else {
+                    val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                    val v = dragLevel(seekDrag.level, dy, h)
+                    audio.setStreamVolume(AudioManager.STREAM_MUSIC, (v * max).toInt(), 0)
+                    showFeedback("Volume ${(v * 100).toInt()}%")
+                }
+            },
+            onLevelEnd = {},
+            onLongPress = { on ->
+                session.boost(on)
+                if (on) showFeedback("2x speed")
+            },
+        )
+    }
+
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        AndroidView(
+            factory = { c -> VLCVideoLayout(c).also { session.attach(it) } },
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (locked) {
+            // Lock swallows gestures; only the unlock button responds.
+            Box(Modifier.fillMaxSize().clickableNoRipple { controlsVisible = true; poke() })
+            if (controlsVisible) {
+                Button(onClick = { locked = false; showFeedback("Unlocked") }, modifier = Modifier.align(Alignment.Center)) {
+                    Icon(Icons.Filled.LockOpen, contentDescription = null)
+                    Text("  Unlock")
+                }
+            }
+        } else {
+            GestureLayer(gestures)
+            if (controlsVisible) {
+                PlayerTopBar(
+                    title = session.currentFile.name,
+                    onBack = onBack,
+                    onAudio = { dialog = Dialog.AUDIO },
+                    onSubtitles = { dialog = Dialog.SUBTITLES },
+                    onSettings = { dialog = Dialog.SETTINGS },
+                    onExportLog = ::exportLog,
+                    onLock = { locked = true; controlsVisible = false },
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+                PlayerBottomBar(
+                    state = session.state,
+                    positionMs = session.positionMs,
+                    lengthMs = session.lengthMs,
+                    seekable = session.seekable,
+                    hasPrevious = session.hasPrevious,
+                    hasNext = session.hasNext,
+                    onTogglePlay = { session.togglePlay(); poke() },
+                    onPrevious = { session.previous(); poke() },
+                    onNext = { session.next(); poke() },
+                    onSeekBy = { session.seekBy(it); poke() },
+                    onSeekTo = { session.seekTo(it); poke() },
+                    onInteraction = ::poke,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
             }
         }
+        PlayerStatusIndicator(
+            state = session.state,
+            bufferingPercent = session.bufferingPercent,
+            longBuffering = longBuffering,
+            errorMessage = session.errorMessage,
+            onRetry = session::retry,
+            onExport = ::exportLog,
+            modifier = Modifier.align(Alignment.Center),
+        )
+        FeedbackChip(feedback, Modifier.align(Alignment.TopCenter).padding(top = 72.dp))
     }
+
+    when (dialog) {
+        Dialog.AUDIO -> TrackDialog(
+            title = "Audio track", options = session.audioTracks, emptyText = "No audio tracks reported",
+            onSelect = { session.selectAudio(it); dialog = Dialog.NONE },
+            onDismiss = { dialog = Dialog.NONE },
+        )
+        Dialog.SUBTITLES -> TrackDialog(
+            title = "Subtitles", options = session.subtitleTracks, emptyText = "",
+            offSelected = session.subtitlesOff, onOff = { session.selectSubtitle(null); dialog = Dialog.NONE },
+            extraAction = {
+                TextButton(onClick = { dialog = Dialog.NONE; pickSubtitle.launch(arrayOf("*/*")) }) { Text("Load external subtitle (SRT/ASS/SSA/VTT)…") }
+            },
+            onSelect = { session.selectSubtitle(it); dialog = Dialog.NONE },
+            onDismiss = { dialog = Dialog.NONE },
+        )
+        Dialog.SETTINGS -> SettingsDialog(
+            session = session, orientation = orientation,
+            onOrientation = { orientation = it }, onDismiss = { dialog = Dialog.NONE },
+        )
+        Dialog.NONE -> {}
+    }
+}
+
+private class SeekDragState {
+    var start = 0L
+    var target = 0L
+    var level = 0f
+}
+
+private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier = composed {
+    clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
 }
