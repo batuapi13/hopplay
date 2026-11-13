@@ -20,7 +20,7 @@ abstract class NetworkFs(protected val c: Connection) : RemoteFs {
         Uri.parse("hopplay://${c.id}" + Uri.encode(path, "/"))
 
     protected fun join(parent: String, name: String) =
-        if (parent.endsWith("/")) parent + name else "$"+"parent/$"+"name"
+        if (parent.endsWith("/")) parent + name else "$parent/$name"
 }
 
 /**
