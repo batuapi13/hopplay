@@ -69,6 +69,7 @@ class PlaybackDiagnostics {
     private fun safe(text: String): String {
         // Message text from remote filesystem errors may contain private host/path details.
         return text
+            .replace(Regex("""Format\(\d+,\s*[^,]*,"""), "Format([redacted-title],")
             .replace(Regex("(?i)(?:sftp|ssh|hopplay|smb|https?)://[^\\s,;)]+"), "[redacted-uri]")
             .replace(Regex("(?<![A-Za-z0-9])/(?:[^\\s/:]+/)+[^\\s,;)]*"), "[redacted-path]")
             .take(1400)
