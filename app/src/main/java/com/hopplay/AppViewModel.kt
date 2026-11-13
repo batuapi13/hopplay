@@ -20,7 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-enum class Screen { HOME, BROWSE, PLAYER }
+enum class Screen { HOME, BROWSE, PLAYER, VLC }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val hp = app as HopPlayApp
@@ -31,6 +31,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var current by mutableStateOf<Connection?>(null)
     val stack = mutableStateListOf<String>()
     var entries by mutableStateOf<List<FsEntry>>(emptyList())
+    var vlcFiles by mutableStateOf<List<FsEntry>>(emptyList())
+    var vlcStartIndex by mutableStateOf(0)
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
 
@@ -101,6 +103,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val fs = fs ?: return
         val conn = current ?: return
         val files = entries.filter { !it.isDir && MediaTypes.isPlayable(it.name) }
+        if (files.isEmpty()) return
+        if (conn.protocol == com.hopplay.data.Protocol.SFTP) {
+            vlcFiles = files
+            vlcStartIndex = files.indexOf(entry).coerceAtLeast(0)
+            screen = Screen.VLC
+            return
+        }
         val items = files.map { buildItem(fs, conn, it) }
         controller.play(items, files.indexOf(entry).coerceAtLeast(0))
         screen = Screen.PLAYER
@@ -124,6 +133,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             .setMediaMetadata(MediaMetadata.Builder().setTitle(e.name).build())
             .setSubtitleConfigurations(subs)
             .build()
+    }
+
+    fun closeVlc() {
+        screen = Screen.BROWSE
+        vlcFiles = emptyList()
     }
 
     fun closePlayer() {

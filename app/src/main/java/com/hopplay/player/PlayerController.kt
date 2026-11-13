@@ -1,10 +1,16 @@
 package com.hopplay.player
 
 import android.app.Application
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Tracks
 import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -14,47 +20,110 @@ import androidx.media3.extractor.DefaultExtractorsFactory
 import com.hopplay.data.ResumeStore
 
 /**
- * Wraps ExoPlayer. The whole folder is loaded as a playlist, so the next file
- * starts automatically; positions are remembered per media id.
+ * One ExoPlayer instance per opened folder playlist. Stop and release the
+ * previous instance before opening another folder so Qualcomm MediaCodec
+ * resources and renderer state cannot leak between playback sessions.
  */
-class PlayerController(app: Application, private val resume: ResumeStore) {
-    val player: ExoPlayer = ExoPlayer.Builder(
-        app,
-        DefaultRenderersFactory(app).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER),
-        DefaultMediaSourceFactory(
-            DataSource.Factory { RoutingDataSource(app) },
-            DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
-        ),
-    )
-        .setHandleAudioBecomingNoisy(true)
-        .setAudioAttributes(AudioAttributes.DEFAULT, true)
-        .setSeekParameters(SeekParameters.CLOSEST_SYNC)
-        .build()
+class PlayerController(private val app: Application, private val resume: ResumeStore) {
+    val diagnostics = PlaybackDiagnostics()
+    fun exportDiagnostics(): String = diagnostics.exportText()
+
+    private var preferSoftwareVideo = false
+    var player: ExoPlayer by mutableStateOf(createPlayer())
+        private set
 
     private var lastId: String? = null
 
-    init {
-        player.addListener(object : Player.Listener {
+    private fun createPlayer(): ExoPlayer {
+        val fresh = ExoPlayer.Builder(
+            app,
+            DefaultRenderersFactory(app)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+                .setEnableDecoderFallback(true)
+                .setMediaCodecSelector(MediaCodecSelector { mimeType, secure, tunnel ->
+                    val available = MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, secure, tunnel)
+                    if (preferSoftwareVideo && mimeType.startsWith("video/")) {
+                        available.sortedByDescending { it.softwareOnly }
+                    } else available
+                }),
+            DefaultMediaSourceFactory(
+                DataSource.Factory { RoutingDataSource(app, diagnostics) },
+                DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
+            ),
+        )
+            .setHandleAudioBecomingNoisy(true)
+            .setAudioAttributes(AudioAttributes.DEFAULT, true)
+            .setSeekParameters(SeekParameters.CLOSEST_SYNC)
+            .build()
+
+        fresh.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                diagnostics.failure(error)
+            }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                diagnostics.record("Tracks: " + diagnostics.trackSummary(tracks))
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                diagnostics.record("Player state=" + state + " (1=idle,2=buffering,3=ready,4=ended)")
+            }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val extension = mediaItem?.localConfiguration?.uri?.lastPathSegment
+                    ?.substringAfterLast('.', "unknown")?.take(12) ?: "none"
+                diagnostics.record("Media transition reason=" + reason + " fileExt=" + extension)
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) lastId?.let(resume::clear)
                 lastId = mediaItem?.mediaId
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
-                    mediaItem?.mediaId?.let(resume::get)?.let { player.seekTo(it) }
+                    mediaItem?.mediaId?.let(resume::get)?.let { fresh.seekTo(it) }
                 }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (!isPlaying) savePosition()
+                if (!isPlaying && fresh === player) savePosition()
             }
         })
+        return fresh
     }
 
     fun play(items: List<MediaItem>, startIndex: Int) {
+        if (items.isEmpty()) return
+        diagnostics.record("New playlist: count=" + items.size + " startIndex=" + startIndex)
+        // A new player is preferable to reusing a potentially failed hardware
+        // decoder across unrelated MKV files/folders.
+        player.stop()
+        player.release()
+        lastId = null
+        preferSoftwareVideo = false
+        player = createPlayer()
+
         val startPos = items.getOrNull(startIndex)?.mediaId?.let(resume::get) ?: C.TIME_UNSET
         lastId = items.getOrNull(startIndex)?.mediaId
         player.setMediaItems(items, startIndex, startPos)
         player.prepare()
         player.playWhenReady = true
+    }
+
+    /**
+     * Retry the current item with platform software MediaCodec decoders first.
+     * No FFmpeg VIDEO renderer is bundled, so this may not work on all devices.
+     */
+    fun retryWithSoftwareVideo(): Boolean {
+        if (preferSoftwareVideo || player.mediaItemCount == 0) return false
+        val items = (0 until player.mediaItemCount).map(player::getMediaItemAt)
+        val index = player.currentMediaItemIndex.coerceIn(0, items.lastIndex)
+        val position = player.currentPosition.coerceAtLeast(0L)
+        player.stop()
+        player.release()
+        preferSoftwareVideo = true
+        diagnostics.record("Manual retry using software-decoder preference")
+        player = createPlayer()
+        lastId = items[index].mediaId
+        player.setMediaItems(items, index, position)
+        player.prepare()
+        player.playWhenReady = true
+        return true
     }
 
     fun savePosition() {
@@ -65,6 +134,7 @@ class PlayerController(app: Application, private val resume: ResumeStore) {
     }
 
     fun stop() {
+        diagnostics.record("Closing playback")
         savePosition()
         player.stop()
         player.clearMediaItems()

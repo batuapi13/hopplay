@@ -79,6 +79,9 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-ui:$media3")
 
+    // Embedded VLC/FFmpeg video and audio engine for Hi10P/HEVC Main10/legacy AVI.
+    implementation("org.videolan.android:libvlc-all:3.6.5")
+
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")

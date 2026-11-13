@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Simplified small-size vector treatment of approved HopPlay artwork. -->
+    <path android:fillColor="#39EF96" android:pathData="M22,35 L22,30 Q22,25 28,25 L46,25 Q50,25 53,30 L58,35 Z"/>
+    <path android:fillColor="#20DCE4" android:pathData="M22,33 L64,33 Q69,33 72,38 L83,48 L83,75 Q83,80 78,80 L24,80 Q19,80 19,75 L19,38 Q19,33 22,33 Z"/>
+    <path android:fillColor="#079AC7" android:pathData="M25,39 L80,39 Q85,39 83,45 L77,73 Q76,76 72,76 L23,76 Q20,76 21,72 L24,44 Q24,39 25,39 Z"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M43,47 Q41,46 41,49 L41,66 Q41,69 44,67 L60,58 Q62,57 60,55 Z"/>
+    <path android:fillColor="#08184A" android:pathData="M63,65 L88,65 L88,83 L63,83 Z"/>
+    <path android:fillColor="#D5F9FF" android:pathData="M64,67 L87,67 Q89,67 89,69 L89,84 Q89,86 87,86 L64,86 Q62,86 62,84 L62,69 Q62,67 64,67 Z M66,71 L66,75 L85,75 L85,71 Z M66,79 L66,82 L85,82 L85,79 Z"/>
+    <path android:fillColor="#39EF96" android:pathData="M79,72 A2,2 0,1 0,83 72 A2,2 0,1 0,79 72 M79,80 A2,2 0,1 0,83 80 A2,2 0,1 0,79 80"/>
+    <path android:fillColor="#39EF96" android:pathData="M73,64 L73,61 Q73,56 78,56 Q83,56 83,61 L83,64 L80,64 L80,61 Q80,59 78,59 Q76,59 76,61 L76,64 Z"/>
+</vector>

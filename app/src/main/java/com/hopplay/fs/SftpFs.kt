@@ -110,11 +110,37 @@ class SftpFs(c: Connection, ctx: Context) : NetworkFs(c) {
     }.getOrNull()
 
     override fun open(path: String): RangeFile {
-        val rf: RemoteFile = client().open(path)
-        return object : RangeFile {
-            override val size = rf.length()
-            override fun read(pos: Long, buf: ByteArray, off: Int, len: Int) = rf.read(pos, buf, off, len)
-            override fun close() = rf.close()
+        // Browsing and playback must not share the same SFTP channel.
+        // ExoPlayer may still be closing a previous MKV while the UI lists
+        // another folder or opens the next file.
+        val channel = synchronized(this) {
+            client() // Ensure that the authenticated SSH transport is alive.
+            requireNotNull(ssh).newSFTPClient()
+        }
+        try {
+            val rf: RemoteFile = channel.open(path)
+            try {
+                val fileSize = rf.length()
+                return object : RangeFile {
+                    override val size = fileSize
+                    override fun read(pos: Long, buf: ByteArray, off: Int, len: Int) =
+                        rf.read(pos, buf, off, len)
+
+                    override fun close() {
+                        try {
+                            rf.close()
+                        } finally {
+                            channel.close()
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                runCatching { rf.close() }
+                throw t
+            }
+        } catch (t: Throwable) {
+            runCatching { channel.close() }
+            throw t
         }
     }
 }
