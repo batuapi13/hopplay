@@ -47,7 +47,7 @@ class PlayerController(private val app: Application, private val resume: ResumeS
                     } else available
                 }),
             DefaultMediaSourceFactory(
-                DataSource.Factory { RoutingDataSource(app) },
+                DataSource.Factory { RoutingDataSource(app, diagnostics) },
                 DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
             ),
         )
