@@ -8,6 +8,8 @@
         android:name=".HopPlayApp"
         android:allowBackup="false"
         android:label="HopPlay"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.HopPlay">
         <activity
