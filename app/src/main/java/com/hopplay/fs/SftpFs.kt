@@ -28,10 +28,26 @@ abstract class NetworkFs(protected val c: Connection) : RemoteFs {
  * silent replacement. This pin is independent of saved connection credentials.
  */
 class TofuHostKeyVerifier(ctx: Context) : HostKeyVerifier {
-    private val prefs = ctx.getSharedPreferences("hopplay_sftp_known_hosts", Context.MODE_PRIVATE)
+    private val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    companion object {
+        private const val PREFS_NAME = "hopplay_sftp_known_hosts"
+
+        private fun identity(host: String, port: Int) =
+            "${host.lowercase(Locale.ROOT)}:${if (port > 0) port else 22}"
+
+        fun fingerprint(ctx: Context, host: String, port: Int): String? =
+            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(identity(host, port), null)
+
+        /** Require an explicit user confirmation in the UI before calling this. */
+        fun forget(ctx: Context, host: String, port: Int): Boolean =
+            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().remove(identity(host, port)).commit()
+    }
 
     override fun verify(hostname: String, port: Int, key: PublicKey): Boolean {
-        val identity = "${hostname.lowercase(Locale.ROOT)}:$port"
+        val identity = identity(hostname, port)
         val fingerprint = Base64.encodeToString(
             MessageDigest.getInstance("SHA-256").digest(key.encoded),
             Base64.NO_WRAP,
