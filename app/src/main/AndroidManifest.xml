@@ -7,6 +7,7 @@
     <application
         android:name=".HopPlayApp"
         android:allowBackup="false"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:label="HopPlay"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
