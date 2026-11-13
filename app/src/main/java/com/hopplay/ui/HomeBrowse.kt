@@ -1,6 +1,8 @@
 package com.hopplay.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.LocalContext
+import com.hopplay.fs.TofuHostKeyVerifier
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +41,8 @@ import com.hopplay.data.Protocol
 @Composable
 fun HomeScreen(vm: AppViewModel, onAddLocal: () -> Unit) {
     var editing by remember { mutableStateOf<Connection?>(null) }
+    var trustReset by remember { mutableStateOf<Connection?>(null) }
+    val ctx = LocalContext.current
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.statusBarsPadding().padding(16.dp)) {
             Text("HopPlay", style = androidx.compose.material3.MaterialTheme.typography.headlineMedium)
@@ -61,6 +65,7 @@ fun HomeScreen(vm: AppViewModel, onAddLocal: () -> Unit) {
                                 style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                             )
                         }
+                        if (c.protocol == Protocol.SFTP) TextButton(onClick = { trustReset = c }) { Text("Host key") }
                         if (c.protocol != Protocol.LOCAL) TextButton(onClick = { editing = c }) { Text("Edit") }
                         TextButton(onClick = { vm.delete(c) }) { Text("Delete") }
                     }
@@ -71,6 +76,28 @@ fun HomeScreen(vm: AppViewModel, onAddLocal: () -> Unit) {
     }
     editing?.let { c ->
         ConnectionDialog(c, onDismiss = { editing = null }, onSave = { vm.save(it); editing = null })
+    }
+    trustReset?.let { c ->
+        val saved = TofuHostKeyVerifier.fingerprint(ctx, c.host, c.port)
+        AlertDialog(
+            onDismissRequest = { trustReset = null },
+            title = { Text("SFTP server identity") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(c.host + ":" + (if (c.port > 0) c.port else 22))
+                    Text(if (saved == null) "No server key pinned yet." else "Stored SHA-256 host key fingerprint (Base64):\n" + saved)
+                    Text("Verify the server identity separately before forgetting its key. Your next connection will pin the first key received.")
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = saved != null, onClick = {
+                    TofuHostKeyVerifier.forget(ctx, c.host, c.port)
+                    vm.deleteTrustSession(c.id)
+                    trustReset = null
+                }) { Text("Forget host key") }
+            },
+            dismissButton = { TextButton(onClick = { trustReset = null }) { Text("Cancel") } },
+        )
     }
 }
 
