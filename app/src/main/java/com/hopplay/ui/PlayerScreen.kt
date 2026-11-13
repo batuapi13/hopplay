@@ -90,6 +90,7 @@ fun PlayerScreen(c: PlayerController, onBack: () -> Unit) {
     var controlsVisible by remember { mutableStateOf(true) }
     var playbackError by remember { mutableStateOf<String?>(player.playerError?.message) }
     var exportStatus by remember { mutableStateOf<String?>(null) }
+    var stallNotice by remember(player) { mutableStateOf(false) }
     val exportLog = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")
     ) { uri ->
@@ -146,9 +147,27 @@ fun PlayerScreen(c: PlayerController, onBack: () -> Unit) {
         }
     }
     LaunchedEffect(player) {
+        var bufferingSince = 0L
+        var stallRecorded = false
         while (true) {
             pos = player.currentPosition
             dur = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (player.playbackState == Player.STATE_BUFFERING) {
+                if (bufferingSince == 0L) bufferingSince = now
+                if (!stallRecorded && now - bufferingSince >= 15_000L) {
+                    stallRecorded = true
+                    stallNotice = true
+                    controlsVisible = true
+                    c.diagnostics.record("BUFFERING STALL >15s, positionMs=" + pos +
+                        ", durationMs=" + dur + ", bufferedMs=" + player.bufferedPosition +
+                        ", playWhenReady=" + player.playWhenReady)
+                }
+            } else {
+                bufferingSince = 0L
+                stallRecorded = false
+                stallNotice = false
+            }
             delay(500)
         }
     }
@@ -240,6 +259,16 @@ fun PlayerScreen(c: PlayerController, onBack: () -> Unit) {
                 },
         )
 
+        if (stallNotice && playbackError == null) {
+            Column(Modifier.align(Alignment.Center).background(Color(0xDD332B00)).padding(16.dp)) {
+                Text("Playback is still buffering after 15 seconds.", color = Color.White)
+                TextButton(onClick = {
+                    exportLog.launch("hopplay-playback-" + System.currentTimeMillis() + ".txt")
+                }) { Text("Export diagnostic log", color = Color.White) }
+                exportStatus?.let { Text(it, color = Color.White) }
+            }
+        }
+
         playbackError?.let { message ->
             Column(Modifier.align(Alignment.Center).background(Color(0xDD330000)).padding(16.dp)) {
                 Text(message, color = Color.White)
@@ -279,6 +308,11 @@ fun PlayerScreen(c: PlayerController, onBack: () -> Unit) {
                         else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                     }
                 }) { Text(listOf("Auto", "Land", "Port")[orient], color = Color.White) }
+                TextButton(onClick = {
+                    c.diagnostics.record("Manual log export: playerState=" + player.playbackState +
+                        ", currentMs=" + player.currentPosition + ", bufferedMs=" + player.bufferedPosition)
+                    exportLog.launch("hopplay-playback-" + System.currentTimeMillis() + ".txt")
+                }) { Text("Log", color = Color.White) }
                 TextButton(onClick = { dialog = 0 }) { Text("Audio", color = Color.White) }
                 TextButton(onClick = { dialog = 1 }) { Text("Subs", color = Color.White) }
                 TextButton(onClick = { dialog = 2 }) { Text("${speed}x", color = Color.White) }
