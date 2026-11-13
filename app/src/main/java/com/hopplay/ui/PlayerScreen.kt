@@ -226,9 +226,13 @@ fun PlayerScreen(c: PlayerController, onBack: () -> Unit) {
         playbackError?.let { message ->
             Column(Modifier.align(Alignment.Center).background(Color(0xDD330000)).padding(16.dp)) {
                 Text(message, color = Color.White)
-                TextButton(onClick = { playbackError = null; player.prepare(); player.play() }) {
-                    Text("Retry", color = Color.White)
-                }
+                TextButton(onClick = {
+                    playbackError = null
+                    if (!c.retryWithSoftwareVideo()) {
+                        player.prepare()
+                        player.play()
+                    }
+                }) { Text("Retry with software decoder", color = Color.White) }
             }
         }
 
