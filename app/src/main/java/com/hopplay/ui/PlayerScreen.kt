@@ -41,6 +41,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.TrackGroup
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
@@ -85,6 +86,7 @@ fun PlayerScreen(c: PlayerController, onBack: () -> Unit) {
     val audioManager = remember { ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
 
     var controlsVisible by remember { mutableStateOf(true) }
+    var playbackError by remember { mutableStateOf<String?>(player.playerError?.message) }
     var tick by remember { mutableLongStateOf(0L) }
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var pos by remember { mutableLongStateOf(0L) }
@@ -100,6 +102,13 @@ fun PlayerScreen(c: PlayerController, onBack: () -> Unit) {
     DisposableEffect(player) {
         val l = object : Player.Listener {
             override fun onIsPlayingChanged(p: Boolean) { isPlaying = p }
+            override fun onPlayerError(error: PlaybackException) {
+                playbackError = "Error ${error.errorCode}: ${error.cause?.message ?: error.message ?: "Playback failed"}"
+                controlsVisible = true
+            }
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) playbackError = null
+            }
             override fun onTracksChanged(t: Tracks) { tracks = t }
             override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
                 title = item?.mediaMetadata?.title?.toString().orEmpty()
@@ -213,6 +222,15 @@ fun PlayerScreen(c: PlayerController, onBack: () -> Unit) {
                     )
                 },
         )
+
+        playbackError?.let { message ->
+            Column(Modifier.align(Alignment.Center).background(Color(0xDD330000)).padding(16.dp)) {
+                Text(message, color = Color.White)
+                TextButton(onClick = { playbackError = null; player.prepare(); player.play() }) {
+                    Text("Retry", color = Color.White)
+                }
+            }
+        }
 
         overlay?.let {
             Text(
