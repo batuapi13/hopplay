@@ -101,13 +101,13 @@ fun SettingsDialog(
                 SectionLabel("Speed")
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     SPEED_OPTIONS.forEach { s ->
-                        FilterChip(selected = session.speed == s, onClick = { session.setSpeed(s) }, label = { Text(formatSpeed(s)) })
+                        FilterChip(selected = session.speed == s, onClick = { session.changeSpeed(s) }, label = { Text(formatSpeed(s)) })
                     }
                 }
                 SectionLabel("Aspect ratio")
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     AspectMode.values().forEach { m ->
-                        FilterChip(selected = session.aspect == m, onClick = { session.setAspect(m) }, label = { Text(m.label) })
+                        FilterChip(selected = session.aspect == m, onClick = { session.changeAspect(m) }, label = { Text(m.label) })
                     }
                 }
                 SectionLabel("Orientation")

@@ -232,7 +232,7 @@ class VlcSession(
         load(index, positionMs.takeIf { it > 0 })
     }
 
-    fun setSpeed(value: Float) {
+    fun changeSpeed(value: Float) {
         speed = value
         player.rate = value
     }
@@ -242,7 +242,7 @@ class VlcSession(
         player.rate = if (on) 2f else speed
     }
 
-    fun setAspect(mode: AspectMode) {
+    fun changeAspect(mode: AspectMode) {
         aspect = mode
         applyAspect()
     }
