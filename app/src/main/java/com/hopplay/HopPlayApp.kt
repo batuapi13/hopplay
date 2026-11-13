@@ -18,7 +18,7 @@ class FsRegistry(private val ctx: Context, private val store: ConnectionStore) {
     private val map = ConcurrentHashMap<String, RemoteFs>()
 
     fun get(id: String): RemoteFs = map.getOrPut(id) {
-        val c = store.get(id) ?: error("Unknown connection $"+"id")
+        val c = store.get(id) ?: error("Unknown connection $id")
         create(c)
     }
 
