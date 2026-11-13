@@ -19,9 +19,9 @@ jobs:
           gradle-version: 8.9
       - name: Run JVM unit tests
         run: gradle --no-daemon testDebugUnitTest
-      - name: Assemble debug APK
-        run: gradle --no-daemon assembleDebug
+      - name: Assemble FFmpeg-enabled debug APK
+        run: gradle --no-daemon assembleDebug -Pffmpeg=true
       - uses: actions/upload-artifact@v4
         with:
-          name: hopplay-debug-apk
+          name: hopplay-ffmpeg-debug-apk
           path: app/build/outputs/apk/debug/*.apk
