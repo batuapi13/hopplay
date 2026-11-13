@@ -8,7 +8,7 @@ plugins {
 
 android {
     namespace = "com.hopplay"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.hopplay"
@@ -18,7 +18,6 @@ android {
         versionName = "0.1.0"
     }
 
-    // One small APK per ABI; only arm64 is shipped to keep size minimal.
     splits {
         abi {
             isEnable = true
@@ -84,7 +83,6 @@ dependencies {
     implementation("com.hierynomus:sshj:0.38.0")
     implementation("com.hierynomus:smbj:0.13.0")
 
-    // Opt-in: wider audio codec coverage (AC3/EAC3/DTS/TrueHD/...). Verify the version on Maven Central.
     if (providers.gradleProperty("ffmpeg").orNull == "true") {
         implementation("org.jellyfin.media3:media3-ffmpeg-decoder:$media3+1")
     }
