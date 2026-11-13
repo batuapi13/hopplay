@@ -4,6 +4,11 @@ import android.app.Activity
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
+import android.os.Build
+import android.view.WindowManager
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -174,6 +179,33 @@ fun VlcPlayerScreen(
     }
 
     val originalBrightness = remember { activity.window.attributes.screenBrightness }
+    // Immersive full screen (bars + cutout) for the lifetime of the player; restored on exit.
+    DisposableEffect(activity) {
+        val window = activity.window
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+        val oldCutout = if (Build.VERSION.SDK_INT >= 28) window.attributes.layoutInDisplayCutoutMode else 0
+        if (Build.VERSION.SDK_INT >= 28) {
+            window.attributes = window.attributes.also {
+                it.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        onDispose {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            controller.show(WindowInsetsCompat.Type.systemBars())
+            if (Build.VERSION.SDK_INT >= 28) {
+                window.attributes = window.attributes.also { it.layoutInDisplayCutoutMode = oldCutout }
+            }
+        }
+    }
+    // No permission needed: the window flag keeps the display awake only while actually playing.
+    val keepAwake = session.state == PlayState.PLAYING || session.state == PlayState.BUFFERING || session.state == PlayState.LOADING
+    LaunchedEffect(keepAwake) {
+        if (keepAwake) activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
     DisposableEffect(session) {
         onDispose {
             session.release()
