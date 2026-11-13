@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import com.hopplay.data.Connection
 import com.hopplay.data.Protocol
@@ -24,7 +25,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) { Root(vm) }
+            MaterialTheme(colorScheme = darkColorScheme(
+                primary = Color(0xFF39DADD),
+                onPrimary = Color(0xFF082548),
+                secondary = Color(0xFF6CF5AB),
+                background = Color(0xFF0B1233),
+                surface = Color(0xFF111B40),
+                surfaceVariant = Color(0xFF1B2850),
+                onBackground = Color(0xFFF4F8FF),
+                onSurface = Color(0xFFF4F8FF),
+            )) { Root(vm) }
         }
     }
 
