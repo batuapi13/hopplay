@@ -31,7 +31,7 @@ class TofuHostKeyVerifier(ctx: Context) : HostKeyVerifier {
     private val prefs = ctx.getSharedPreferences("hopplay_sftp_known_hosts", Context.MODE_PRIVATE)
 
     override fun verify(hostname: String, port: Int, key: PublicKey): Boolean {
-        val identity = "${hostname.lowercase(Locale.ROOT)}:$"+"port"
+        val identity = "${hostname.lowercase(Locale.ROOT)}:$port"
         val fingerprint = Base64.encodeToString(
             MessageDigest.getInstance("SHA-256").digest(key.encoded),
             Base64.NO_WRAP,
@@ -40,17 +40,19 @@ class TofuHostKeyVerifier(ctx: Context) : HostKeyVerifier {
             val known = prefs.getString(identity, null)
             if (known != null) {
                 if (known != fingerprint) {
-                    throw SecurityException("SFTP host key changed for $"+"identity. Connection blocked. Verify the server key before resetting trust.")
+                    throw SecurityException("SFTP host key changed for $identity. Connection blocked. Verify the server key before resetting trust.")
                 }
                 return true
             }
             // commit() ensures the key is saved before the connection is trusted.
             check(prefs.edit().putString(identity, fingerprint).commit()) {
-                "Unable to save SFTP server host key for $"+"identity"
+                "Unable to save SFTP server host key for $identity"
             }
             return true
         }
     }
+
+    override fun findExistingAlgorithms(hostname: String, port: Int): List<String> = emptyList()
 }
 
 class SftpFs(c: Connection, ctx: Context) : NetworkFs(c) {
