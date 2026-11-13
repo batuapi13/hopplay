@@ -1,6 +1,8 @@
 package com.hopplay.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.ui.platform.LocalContext
 import com.hopplay.fs.TofuHostKeyVerifier
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +20,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -34,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import com.hopplay.AppViewModel
 import com.hopplay.data.Connection
 import com.hopplay.data.Protocol
@@ -45,31 +50,43 @@ fun HomeScreen(vm: AppViewModel, onAddLocal: () -> Unit) {
     val ctx = LocalContext.current
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.statusBarsPadding().padding(16.dp)) {
-            Text("HopPlay", style = androidx.compose.material3.MaterialTheme.typography.headlineMedium)
-            Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onAddLocal) { Text("+ Local folder") }
-                OutlinedButton(onClick = { editing = Connection(name = "", protocol = Protocol.SFTP, port = 22) }) { Text("+ SFTP") }
+            Text("HopPlay", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
+            Text("Play directly from your files. No media server required.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 16.dp).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(onClick = { editing = Connection(name = "", protocol = Protocol.SFTP, port = 22) }) { Text("+ SFTP") }
+                OutlinedButton(onClick = onAddLocal) { Text("+ Local") }
                 OutlinedButton(onClick = { editing = Connection(name = "", protocol = Protocol.SMB, port = 445) }) { Text("+ SMB") }
             }
-            if (vm.connections.isEmpty()) Text("Add a local folder or a network share to start.")
+            Text("LIBRARY", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.padding(bottom = 8.dp))
+            if (vm.connections.isEmpty()) Text("Add an SFTP server to browse and stream your media.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             LazyColumn {
                 items(vm.connections, key = { it.id }) { c ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable { vm.openConnection(c) }.padding(vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(c.name, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-                            Text(
-                                if (c.protocol == Protocol.LOCAL) "Local" else "${c.protocol.name.lowercase()}://${c.host}",
-                                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                            )
+                    Card(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                            Row(Modifier.fillMaxWidth().clickable { vm.openConnection(c) }.padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (c.protocol == Protocol.SFTP) "🔒 " else if (c.protocol == Protocol.SMB) "🖧 " else "📁 ")
+                                Column(Modifier.weight(1f)) {
+                                    Text(c.name, style = MaterialTheme.typography.titleMedium)
+                                    Text(if (c.protocol == Protocol.LOCAL) "On this device"
+                                        else "${c.protocol.name} · ${c.host}", style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Text("›", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+                            }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                if (c.protocol == Protocol.SFTP) TextButton(onClick = { trustReset = c }) { Text("Host key") }
+                                if (c.protocol != Protocol.LOCAL) TextButton(onClick = { editing = c }) { Text("Edit") }
+                                TextButton(onClick = { vm.delete(c) }) { Text("Delete") }
+                            }
                         }
-                        if (c.protocol == Protocol.SFTP) TextButton(onClick = { trustReset = c }) { Text("Host key") }
-                        if (c.protocol != Protocol.LOCAL) TextButton(onClick = { editing = c }) { Text("Edit") }
-                        TextButton(onClick = { vm.delete(c) }) { Text("Delete") }
                     }
-                    HorizontalDivider()
                 }
             }
         }
@@ -147,15 +164,15 @@ fun BrowseScreen(vm: AppViewModel) {
         Column(Modifier.statusBarsPadding()) {
             Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { if (!vm.up()) vm.home() }) { Text("←") }
-                Text(
-                    vm.current?.name.orEmpty() + vm.stack.lastOrNull()?.let { if (vm.current?.protocol == Protocol.LOCAL) "" else "  $it" }.orEmpty(),
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(Modifier.weight(1f)) {
+                    Text(vm.current?.name.orEmpty(), style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                    Text(vm.stack.lastOrNull().orEmpty(), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                }
             }
             Box(Modifier.fillMaxSize()) {
                 when {
-                    vm.loading -> Text("Loading…", Modifier.padding(16.dp))
+                    vm.loading -> Text("Opening folder…", Modifier.padding(16.dp))
                     vm.error != null -> Text("Error: ${vm.error}", Modifier.padding(16.dp))
                     vm.entries.isEmpty() -> Text("Nothing playable here.", Modifier.padding(16.dp))
                     else -> LazyColumn {
