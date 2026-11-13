@@ -18,7 +18,7 @@ class FsRegistry(private val ctx: Context, private val store: ConnectionStore) {
     private val map = ConcurrentHashMap<String, RemoteFs>()
 
     fun get(id: String): RemoteFs = map.getOrPut(id) {
-        val c = store.get(id) ?: error("Unknown connection $id")
+        val c = store.get(id) ?: error("Unknown connection $"+"id")
         create(c)
     }
 
@@ -26,7 +26,7 @@ class FsRegistry(private val ctx: Context, private val store: ConnectionStore) {
 
     private fun create(c: Connection): RemoteFs = when (c.protocol) {
         Protocol.LOCAL -> LocalFs(ctx, android.net.Uri.parse(c.host))
-        Protocol.SFTP -> SftpFs(c)
+        Protocol.SFTP -> SftpFs(c, ctx)
         Protocol.SMB -> SmbFs(c)
     }
 }
@@ -39,7 +39,6 @@ class HopPlayApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        // Android ships a stripped BouncyCastle; sshj needs the full one.
         Security.removeProvider("BC")
         Security.insertProviderAt(BouncyCastleProvider(), 1)
         store = ConnectionStore(this)
