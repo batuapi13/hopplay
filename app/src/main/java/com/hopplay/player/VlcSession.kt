@@ -38,6 +38,7 @@ class VlcSession(
     private val resumeClear: (Int) -> Unit,
     startIndex: Int,
 ) {
+    private val prefs = ctx.getSharedPreferences("hopplay-subtitles", Context.MODE_PRIVATE)
     private val vlc = LibVLC(ctx, arrayListOf("--no-video-title-show", "--network-caching=500"))
     val player = MediaPlayer(vlc)
 
@@ -53,6 +54,11 @@ class VlcSession(
     var audioTracks by mutableStateOf<List<TrackOption>>(emptyList()); private set
     var subtitleTracks by mutableStateOf<List<TrackOption>>(emptyList()); private set
     var subtitlesOff by mutableStateOf(true); private set
+    var autoSubtitlesEnabled by mutableStateOf(prefs.getBoolean("auto-enabled", true)); private set
+    var preferredSubtitleLanguage by mutableStateOf(prefs.getString("language", "en") ?: "en"); private set
+    var preferEmbeddedSubtitles by mutableStateOf(prefs.getBoolean("embedded-first", true)); private set
+    var loadEpoch by mutableIntStateOf(0); private set
+    private var manualSubtitleOff = false
 
     var speed by mutableFloatStateOf(1f); private set
     var aspect by mutableStateOf(AspectMode.FIT); private set
@@ -85,6 +91,7 @@ class VlcSession(
         if (released) return
         savePosition()
         index = newIndex.coerceIn(0, files.lastIndex)
+        loadEpoch++
         state = PlayState.LOADING
         errorMessage = null
         positionMs = 0L
@@ -194,10 +201,36 @@ class VlcSession(
     }
 
     fun selectSubtitle(option: TrackOption?) {
+        manualSubtitleOff = option == null
         player.spuTrack = option?.id ?: -1
         preferredSubtitle = option?.label ?: ""
         diagnostics.record(if (option == null) "Subtitles off" else "Subtitle track switched")
         refreshTracks()
+    }
+
+    fun configureAutoSubtitles(enabled: Boolean = autoSubtitlesEnabled,
+                               language: String = preferredSubtitleLanguage,
+                               embeddedFirst: Boolean = preferEmbeddedSubtitles) {
+        autoSubtitlesEnabled = enabled
+        preferredSubtitleLanguage = language
+        preferEmbeddedSubtitles = embeddedFirst
+        prefs.edit().putBoolean("auto-enabled", enabled)
+            .putString("language", language).putBoolean("embedded-first", embeddedFirst).apply()
+    }
+
+    /**
+     * Only attach to the same playback generation from which discovery started.
+     * A manual Off choice always wins. Never force-select unknown-language tracks.
+     */
+    fun attachAutoSubtitle(expectedEpoch: Int, localFile: File, select: Boolean): Boolean {
+        if (released || expectedEpoch != loadEpoch || !autoSubtitlesEnabled) return false
+        val shouldSelect = select && !manualSubtitleOff &&
+            preferredSubtitleLanguage != "none" &&
+            (!preferEmbeddedSubtitles || player.spuTrack == -1)
+        val ok = player.addSlave(IMedia.Slave.Type.Subtitle, Uri.fromFile(localFile), shouldSelect)
+        diagnostics.record("SFTP sidecar attached ok=$ok selected=$shouldSelect format=" + localFile.extension)
+        if (ok) refreshTracks()
+        return ok
     }
 
     /** Copies the picked document into app cache so libVLC can open it as a plain file. */
