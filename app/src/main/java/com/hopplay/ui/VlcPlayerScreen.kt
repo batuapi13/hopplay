@@ -29,6 +29,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.composed
@@ -53,6 +54,10 @@ import com.hopplay.player.PlaybackDiagnostics
 import com.hopplay.player.RESUME_SAVE_INTERVAL_MS
 import com.hopplay.player.SftpLoopbackBridge
 import com.hopplay.player.VlcSession
+import com.hopplay.player.PlayState
+import com.hopplay.player.discoverSubtitles
+import com.hopplay.player.bestSubtitle
+import com.hopplay.player.cacheSftpSubtitle
 import com.hopplay.player.dragLevel
 import com.hopplay.player.dragSeekTarget
 import com.hopplay.player.formatTime
@@ -78,6 +83,7 @@ fun VlcPlayerScreen(
     connection: Connection,
     files: List<FsEntry>,
     initialIndex: Int,
+    subtitleFiles: List<FsEntry>,
     onBack: () -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -107,6 +113,8 @@ fun VlcPlayerScreen(
     var feedbackToken by remember { mutableStateOf(0) }
     var longBuffering by remember { mutableStateOf(false) }
     val seekDrag = remember { SeekDragState() }
+    // Keep already attached sidecars per playback generation (including re-buffering).
+    val attachedSubtitles = remember(session) { mutableStateMapOf<String, Boolean>() }
 
     fun showFeedback(text: String) { feedback = text; feedbackToken++ }
     fun poke() { interaction++ }
@@ -155,6 +163,31 @@ fun VlcPlayerScreen(
         while (true) {
             delay(RESUME_SAVE_INTERVAL_MS)
             session.savePosition()
+        }
+    }
+
+    // Discovery is pure and uses the existing browser listing. SFTP transfer is
+    // small, bounded and dispatched to IO; only matching sidecars are fetched.
+    LaunchedEffect(session.loadEpoch, session.state == PlayState.PLAYING,
+        session.autoSubtitlesEnabled, session.preferredSubtitleLanguage, session.preferEmbeddedSubtitles) {
+        if (!session.autoSubtitlesEnabled || session.state != PlayState.PLAYING) return@LaunchedEffect
+        val expectedEpoch = session.loadEpoch
+        val matches = discoverSubtitles(session.currentFile, subtitleFiles).take(12)
+        val selected = bestSubtitle(matches, session.preferredSubtitleLanguage)
+        if (matches.isNotEmpty()) diagnostics.record("Auto subs matched count=${matches.size}")
+        val fs = app.registry.get(connection.id)
+        for (candidate in matches) {
+            val identity = "$expectedEpoch:" + candidate.entry.path
+            if (attachedSubtitles[identity] == true) continue
+            val copied = runCatching { cacheSftpSubtitle(ctx, fs, candidate.entry) }
+                .onFailure { diagnostics.record("SFTP subtitle load failed: " + it.javaClass.simpleName) }
+                .getOrNull() ?: continue
+            if (session.loadEpoch != expectedEpoch) {
+                copied.delete()
+                return@LaunchedEffect
+            }
+            val ok = session.attachAutoSubtitle(expectedEpoch, copied, candidate == selected)
+            if (ok) attachedSubtitles[identity] = true else copied.delete()
         }
     }
 
