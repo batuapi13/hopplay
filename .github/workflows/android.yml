@@ -19,9 +19,32 @@ jobs:
           gradle-version: 8.9
       - name: Run JVM unit tests
         run: gradle --no-daemon testDebugUnitTest
+      # PRs compile with ephemeral debug keys for validation only. They never
+      # publish installable update artifacts. Main uses one persisted keystore.
+      - name: Restore persistent app signing identity
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.HOPPLAY_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.HOPPLAY_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.HOPPLAY_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.HOPPLAY_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_BASE64" || -z "$STORE_PASSWORD" || -z "$KEY_ALIAS" || -z "$KEY_PASSWORD" ]]; then
+            echo "::error::Persistent signing secrets are missing. Refusing to distribute an update-incompatible APK."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/hopplay-signing.jks"
+          chmod 600 "$RUNNER_TEMP/hopplay-signing.jks"
+          echo "HOPPLAY_SIGNING_STORE=$RUNNER_TEMP/hopplay-signing.jks" >> "$GITHUB_ENV"
+          echo "HOPPLAY_STORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "HOPPLAY_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "HOPPLAY_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "HOPPLAY_BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
       - name: Assemble FFmpeg-enabled debug APK
         run: gradle --no-daemon assembleDebug -Pffmpeg=true
       - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         with:
           name: hopplay-ffmpeg-debug-apk
           path: app/build/outputs/apk/debug/*.apk
