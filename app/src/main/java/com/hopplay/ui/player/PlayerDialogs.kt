@@ -153,6 +153,12 @@ fun SettingsDialog(
                         FilterChip(selected = session.subtitleColor == m, onClick = { session.setSubtitleStyle(color = m) }, label = { Text(m.label) })
                     }
                 }
+                SectionLabel("Audio sync delay: ${session.audioDelayMs} ms")
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(onClick = { session.setAudioDelay(session.audioDelayMs - 100) }) { Text("-100ms") }
+                    OutlinedButton(onClick = { session.setAudioDelay(session.audioDelayMs + 100) }) { Text("+100ms") }
+                    TextButton(onClick = { session.setAudioDelay(0) }) { Text("Reset") }
+                }
                 SectionLabel("Subtitle delay: ${session.subtitleDelayMs} ms")
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(onClick = { session.setSubtitleDelay(session.subtitleDelayMs - 500) }) { Text("-0.5s") }
