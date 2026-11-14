@@ -105,9 +105,9 @@ fun SettingsDialog(
                 Text("Fast (keyframes) avoids expensive decoding after a jump on older phones. Precise is more accurate but may briefly show damaged frames.",
                     style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(selected = session.fastSeek, onClick = { session.setFastSeek(true) },
+                    FilterChip(selected = session.fastSeek, onClick = { session.changeSeekMode(true) },
                         label = { Text("Fast (keyframes)") })
-                    FilterChip(selected = !session.fastSeek, onClick = { session.setFastSeek(false) },
+                    FilterChip(selected = !session.fastSeek, onClick = { session.changeSeekMode(false) },
                         label = { Text("Precise") })
                 }
                 SectionLabel("Aspect ratio")
