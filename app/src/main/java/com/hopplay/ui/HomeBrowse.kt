@@ -55,6 +55,14 @@ import androidx.compose.ui.graphics.Color
 import com.hopplay.AppViewModel
 import com.hopplay.data.Connection
 import com.hopplay.data.Protocol
+import com.hopplay.data.SftpAuth
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 
 @Composable
 fun HomeScreen(vm: AppViewModel, onAddLocal: () -> Unit) {
@@ -134,6 +142,35 @@ fun HomeScreen(vm: AppViewModel, onAddLocal: () -> Unit) {
 @Composable
 private fun ConnectionDialog(initial: Connection, onDismiss: () -> Unit, onSave: (Connection) -> Unit) {
     var c by remember { mutableStateOf(initial) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var keyStatus by remember { mutableStateOf<String?>(null) }
+    val importPrivateKey = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) coroutineScope.launch {
+            runCatching {
+                val imported = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        val bytes = ByteArrayOutputStream()
+                        val buffer = ByteArray(4096)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            if (bytes.size() + read > 65_536) error("Private key exceeds 64 KiB")
+                            bytes.write(buffer, 0, read)
+                        }
+                        bytes.toString(Charsets.UTF_8.name()).trimStart()
+                    } ?: error("Unable to open private key")
+                }
+                require(imported.startsWith("-----BEGIN") && imported.contains("PRIVATE KEY-----")) {
+                    "Expected a PEM private key"
+                }
+                c = c.copy(privateKeyPem = imported, sftpAuth = SftpAuth.PRIVATE_KEY)
+                keyStatus = "Key imported. It will be encrypted when you save."
+            }.onFailure {
+                keyStatus = "Import failed: " + (it.message ?: it.javaClass.simpleName)
+            }
+        }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (c.protocol == Protocol.SFTP) "SFTP connection" else "SMB / Windows share") },
@@ -147,13 +184,39 @@ private fun ConnectionDialog(initial: Connection, onDismiss: () -> Unit, onSave:
                     Field("Domain (optional)", c.domain) { c = c.copy(domain = it.trim()) }
                 }
                 Field("User (blank = guest on SMB)", c.user) { c = c.copy(user = it) }
-                Field("Password", c.password, secret = true) { c = c.copy(password = it) }
+                if (c.protocol == Protocol.SFTP) {
+                    Text("Authentication", style = MaterialTheme.typography.labelMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { c = c.copy(sftpAuth = SftpAuth.PASSWORD) }) {
+                            Text(if (c.sftpAuth == SftpAuth.PASSWORD) "✓ Password" else "Password")
+                        }
+                        OutlinedButton(onClick = { c = c.copy(sftpAuth = SftpAuth.PRIVATE_KEY) }) {
+                            Text(if (c.sftpAuth == SftpAuth.PRIVATE_KEY) "✓ SSH Key" else "SSH Key")
+                        }
+                    }
+                    if (c.sftpAuth == SftpAuth.PRIVATE_KEY) {
+                        OutlinedButton(onClick = { importPrivateKey.launch(arrayOf("*/*")) }) {
+                            Text(if (c.privateKeyPem.isBlank()) "Import private key" else "Replace private key")
+                        }
+                        Text(if (c.privateKeyPem.isNotBlank()) "Private key loaded (stored encrypted)" else "No key imported",
+                            style = MaterialTheme.typography.bodySmall)
+                        Field("Key passphrase (optional)", c.keyPassphrase, secret = true) {
+                            c = c.copy(keyPassphrase = it)
+                        }
+                        keyStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    } else {
+                        Field("Password", c.password, secret = true) { c = c.copy(password = it) }
+                    }
+                } else {
+                    Field("Password", c.password, secret = true) { c = c.copy(password = it) }
+                }
                 Field("Start path", c.path) { c = c.copy(path = it) }
             }
         },
         confirmButton = {
             TextButton(
-                enabled = c.host.isNotBlank() && (c.protocol != Protocol.SMB || c.share.isNotBlank()),
+                enabled = c.host.isNotBlank() && (c.protocol != Protocol.SMB || c.share.isNotBlank()) &&
+                    (c.protocol != Protocol.SFTP || c.sftpAuth != SftpAuth.PRIVATE_KEY || c.privateKeyPem.isNotBlank()),
                 onClick = { onSave(c.copy(name = c.name.ifBlank { c.host })) },
             ) { Text("Save") }
         },
