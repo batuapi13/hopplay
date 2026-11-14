@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -67,7 +69,7 @@ import com.hopplay.ui.player.TrackDialog
 import kotlinx.coroutines.delay
 import org.videolan.libvlc.util.VLCVideoLayout
 
-private enum class Dialog { NONE, AUDIO, SUBTITLES, SETTINGS }
+private enum class Dialog { NONE, AUDIO, SUBTITLES, SETTINGS, INSPECTOR }
 
 /**
  * Embedded VLC software-decoding player. SFTP itself is still handled by SSHJ
@@ -106,6 +108,8 @@ fun VlcPlayerScreen(
     var feedback by remember { mutableStateOf<String?>(null) }
     var feedbackToken by remember { mutableStateOf(0) }
     var longBuffering by remember { mutableStateOf(false) }
+    var streamStats by remember { mutableStateOf(bridge.stats()) }
+    var throughputMbps by remember { mutableStateOf(0.0) }
     val seekDrag = remember { SeekDragState() }
 
     fun showFeedback(text: String) { feedback = text; feedbackToken++ }
@@ -155,6 +159,19 @@ fun VlcPlayerScreen(
         while (true) {
             delay(RESUME_SAVE_INTERVAL_MS)
             session.savePosition()
+        }
+    }
+
+    LaunchedEffect(dialog) {
+        if (dialog == Dialog.INSPECTOR) {
+            var previous = bridge.stats()
+            while (true) {
+                delay(1000)
+                val now = bridge.stats()
+                throughputMbps = ((now.bytes - previous.bytes).coerceAtLeast(0) * 8.0 / 1_000_000.0)
+                streamStats = now
+                previous = now
+            }
         }
     }
 
@@ -291,6 +308,7 @@ fun VlcPlayerScreen(
                     onSubtitles = { dialog = Dialog.SUBTITLES },
                     onSettings = { dialog = Dialog.SETTINGS },
                     onExportLog = ::exportLog,
+                    onNetworkInspector = { dialog = Dialog.INSPECTOR },
                     onLock = { locked = true; controlsVisible = false },
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
@@ -341,6 +359,23 @@ fun VlcPlayerScreen(
         Dialog.SETTINGS -> SettingsDialog(
             session = session, orientation = orientation,
             onOrientation = { orientation = it }, onDismiss = { dialog = Dialog.NONE },
+        )
+        Dialog.INSPECTOR -> AlertDialog(
+            onDismissRequest = { dialog = Dialog.NONE },
+            title = { Text("Network inspector") },
+            text = {
+                Column {
+                    Text("Transport: SFTP via private loopback")
+                    Text("Current throughput: " + "%.2f".format(java.util.Locale.US, throughputMbps) + " Mbps")
+                    Text("Bytes streamed: " + (streamStats.bytes / 1024) + " KiB")
+                    Text("Range requests: " + streamStats.requests)
+                    Text("Read operations: " + streamStats.reads)
+                    Text("Last read latency: " + streamStats.lastReadMs + " ms")
+                    Text("Reads over 2s: " + streamStats.slowReads)
+                    Text("Player state: " + session.state.name)
+                }
+            },
+            confirmButton = { TextButton(onClick = { dialog = Dialog.NONE }) { Text("Close") } },
         )
         Dialog.NONE -> {}
     }
