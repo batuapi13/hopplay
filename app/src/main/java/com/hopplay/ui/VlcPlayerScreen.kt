@@ -60,6 +60,7 @@ import com.hopplay.player.cacheSftpSubtitle
 import com.hopplay.player.dragLevel
 import com.hopplay.player.dragSeekTarget
 import com.hopplay.player.formatTime
+import com.hopplay.player.next
 import com.hopplay.ui.player.FeedbackChip
 import com.hopplay.ui.player.GestureActions
 import com.hopplay.ui.player.GestureLayer
@@ -321,6 +322,8 @@ fun VlcPlayerScreen(
                     onBack = onBack,
                     onAudio = { dialog = Dialog.AUDIO },
                     onSubtitles = { dialog = Dialog.SUBTITLES },
+                    orientation = orientation,
+                    onToggleOrientation = { orientation = orientation.next(); poke() },
                     onSettings = { dialog = Dialog.SETTINGS },
                     onExportLog = ::exportLog,
                     onLock = { locked = true; controlsVisible = false },
@@ -371,8 +374,7 @@ fun VlcPlayerScreen(
             onDismiss = { dialog = Dialog.NONE },
         )
         Dialog.SETTINGS -> SettingsDialog(
-            session = session, orientation = orientation,
-            onOrientation = { orientation = it }, onDismiss = { dialog = Dialog.NONE },
+            session = session, onDismiss = { dialog = Dialog.NONE },
         )
         Dialog.NONE -> {}
     }
