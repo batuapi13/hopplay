@@ -98,7 +98,7 @@ class SftpFs(c: Connection, ctx: Context) : NetworkFs(c) {
                     val finder = if (passphrase.isNotEmpty()) PasswordUtils.createOneOff(passphrase) else null
                     k.authPublickey(c.user, k.loadKeys(c.privateKeyPem, null, finder))
                 } finally {
-                    passphrase.fill('\\u0000')
+                    passphrase.fill(0.toChar())
                 }
             } else {
                 k.authPassword(c.user, c.password)
