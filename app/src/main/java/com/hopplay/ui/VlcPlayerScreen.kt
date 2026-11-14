@@ -21,6 +21,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -72,7 +79,7 @@ import com.hopplay.ui.player.TrackDialog
 import kotlinx.coroutines.delay
 import org.videolan.libvlc.util.VLCVideoLayout
 
-private enum class Dialog { NONE, AUDIO, SUBTITLES, SETTINGS }
+private enum class Dialog { NONE, AUDIO, SUBTITLES, SETTINGS, QUEUE, INFO }
 
 /**
  * Embedded VLC software-decoding player. SFTP itself is still handled by SSHJ
@@ -329,6 +336,8 @@ fun VlcPlayerScreen(
                     onToggleOrientation = { orientation = orientation.next(); poke() },
                     onSettings = { dialog = Dialog.SETTINGS },
                     onExportLog = ::exportLog,
+                    onQueue = { dialog = Dialog.QUEUE },
+                    onMediaInfo = { dialog = Dialog.INFO },
                     onLock = { locked = true; controlsVisible = false },
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
@@ -378,6 +387,41 @@ fun VlcPlayerScreen(
         )
         Dialog.SETTINGS -> SettingsDialog(
             session = session, onDismiss = { dialog = Dialog.NONE },
+        )
+        Dialog.QUEUE -> AlertDialog(
+            onDismissRequest = { dialog = Dialog.NONE },
+            title = { Text("Current folder queue") },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 450.dp)) {
+                    itemsIndexed(files) { i, item ->
+                        TextButton(onClick = {
+                            session.load(i)
+                            dialog = Dialog.NONE
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Text((if (i == session.index) "▶ " else "") + item.name,
+                                maxLines = 2, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { dialog = Dialog.NONE }) { Text("Close") } },
+        )
+        Dialog.INFO -> AlertDialog(
+            onDismissRequest = { dialog = Dialog.NONE },
+            title = { Text("Media information") },
+            text = {
+                Column {
+                    Text(session.currentFile.name)
+                    Text("File size: " + (session.currentFile.size / (1024L * 1024L)) + " MiB")
+                    Text("Duration: " + formatTime(session.lengthMs))
+                    Text("Audio tracks: " + session.audioTracks.size)
+                    Text("Subtitle tracks: " + session.subtitleTracks.size)
+                    Text("Seekable: " + if (session.seekable) "Yes" else "No")
+                    Text("Video decoding: libVLC software")
+                    Text("Streaming: authenticated SFTP")
+                }
+            },
+            confirmButton = { TextButton(onClick = { dialog = Dialog.NONE }) { Text("Close") } },
         )
         Dialog.NONE -> {}
     }
