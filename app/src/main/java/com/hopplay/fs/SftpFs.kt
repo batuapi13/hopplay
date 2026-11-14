@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import android.util.Base64
 import com.hopplay.data.Connection
+import com.hopplay.data.SftpAuth
+import net.schmizz.sshj.userauth.password.PasswordUtils
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.sftp.FileMode
 import net.schmizz.sshj.sftp.RemoteFile
@@ -89,7 +91,18 @@ class SftpFs(c: Connection, ctx: Context) : NetworkFs(c) {
         k.connectTimeout = 15_000
         try {
             k.connect(c.host, if (c.port > 0) c.port else 22)
-            k.authPassword(c.user, c.password)
+            if (c.sftpAuth == SftpAuth.PRIVATE_KEY) {
+                require(c.privateKeyPem.isNotBlank()) { "No private key imported for this connection" }
+                val passphrase = c.keyPassphrase.toCharArray()
+                try {
+                    val finder = if (passphrase.isNotEmpty()) PasswordUtils.createOneOff(passphrase) else null
+                    k.authPublickey(c.user, k.loadKeys(c.privateKeyPem, null, finder))
+                } finally {
+                    passphrase.fill(0.toChar())
+                }
+            } else {
+                k.authPassword(c.user, c.password)
+            }
             val active = k.newSFTPClient()
             ssh = k
             sftp = active
