@@ -270,7 +270,7 @@ class VlcSession(
     }
 
     /** Keyframe seeks minimize costly reference-frame reconstruction on slower CPUs. */
-    fun setFastSeek(enabled: Boolean) {
+    fun changeSeekMode(enabled: Boolean) {
         fastSeek = enabled
         diagnostics.record("Seek mode=" + if (enabled) "fast-keyframe" else "precise")
     }
