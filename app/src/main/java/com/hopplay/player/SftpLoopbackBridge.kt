@@ -10,6 +10,7 @@ import java.net.Socket
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Private 127.0.0.1 HTTP Range gateway, embedded in the app. LibVLC reads
@@ -17,12 +18,21 @@ import java.util.concurrent.atomic.AtomicBoolean
  * authenticated and TOFU-verified SSHJ SFTP session. No remote hosting,
  * passwords in URLs, or full-file downloads.
  */
+data class StreamStats(val bytes: Long, val requests: Long, val reads: Long, val slowReads: Long, val lastReadMs: Long)
+
 class SftpLoopbackBridge(
     private val fs: RemoteFs,
     private val files: List<FsEntry>,
     private val log: (String) -> Unit,
 ) : AutoCloseable {
     private val running = AtomicBoolean(true)
+    private val transferred = AtomicLong(0)
+    private val requestCount = AtomicLong(0)
+    private val readCount = AtomicLong(0)
+    private val slowCount = AtomicLong(0)
+    private val lastReadMs = AtomicLong(0)
+
+    fun stats() = StreamStats(transferred.get(), requestCount.get(), readCount.get(), slowCount.get(), lastReadMs.get())
     private val token = UUID.randomUUID().toString().replace("-", "")
     private val server = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
     private val workers = Executors.newFixedThreadPool(4)
@@ -64,6 +74,7 @@ class SftpLoopbackBridge(
                     reply(output, 404, "Not Found", 0L, 0L, 0L, false)
                     return
                 }
+                requestCount.incrementAndGet()
                 fs.open(files[index].path).use { file ->
                     val size = file.size
                     if (size <= 0) {
@@ -92,9 +103,13 @@ class SftpLoopbackBridge(
                         val count = minOf(buffer.size.toLong(), end - position + 1).toInt()
                         val readStart = System.nanoTime()
                         val read = file.read(position, buffer, 0, count)
-                        if (System.nanoTime() - readStart > 2_000_000_000L) slowReads++
+                        val elapsedMs = (System.nanoTime() - readStart) / 1_000_000
+                        lastReadMs.set(elapsedMs)
+                        readCount.incrementAndGet()
+                        if (elapsedMs > 2000L) { slowReads++; slowCount.incrementAndGet() }
                         if (read <= 0) break
                         output.write(buffer, 0, read)
+                        transferred.addAndGet(read.toLong())
                         position += read
                     }
                     output.flush()
