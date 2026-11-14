@@ -100,6 +100,9 @@ fun VlcPlayerScreen(
             resumeGet = { app.resume.get(key(it)) },
             resumePut = { i, p -> app.resume.put(key(i), p) },
             resumeClear = { app.resume.clear(key(it)) },
+            historyUpdate = { i, position, duration, completed ->
+                app.history.update(connection.id, files[i].path, files[i].name, position, duration, completed)
+            },
             startIndex = initialIndex,
         )
     }
