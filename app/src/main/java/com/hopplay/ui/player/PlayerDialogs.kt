@@ -104,6 +104,15 @@ fun SettingsDialog(
                         FilterChip(selected = session.speed == s, onClick = { session.changeSpeed(s) }, label = { Text(formatSpeed(s)) })
                     }
                 }
+                SectionLabel("Seeking")
+                Text("Fast (keyframes) avoids expensive decoding after a jump on older phones. Precise is more accurate but may briefly show damaged frames.",
+                    style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = session.fastSeek, onClick = { session.setFastSeek(true) },
+                        label = { Text("Fast (keyframes)") })
+                    FilterChip(selected = !session.fastSeek, onClick = { session.setFastSeek(false) },
+                        label = { Text("Precise") })
+                }
                 SectionLabel("Aspect ratio")
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     AspectMode.values().forEach { m ->
