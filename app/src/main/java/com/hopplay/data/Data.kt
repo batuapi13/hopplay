@@ -25,7 +25,10 @@ data class Connection(
     val share: String = "",
     val domain: String = "",
     val path: String = "/",
-)
+) {
+    // A Kotlin data class otherwise prints every credential in generated toString().
+    override fun toString(): String = "Connection(id=$id, protocol=$protocol, credentials=[redacted])"
+}
 
 /** Connections (including credentials) live in Keystore-backed EncryptedSharedPreferences. */
 class ConnectionStore(ctx: Context) {
