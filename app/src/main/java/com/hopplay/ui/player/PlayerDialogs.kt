@@ -33,7 +33,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.hopplay.player.AspectMode
-import com.hopplay.player.OrientationMode
 import com.hopplay.player.PlayState
 import com.hopplay.player.SPEED_OPTIONS
 import com.hopplay.player.SubtitleColor
@@ -89,8 +88,6 @@ private fun SectionLabel(text: String) =
 @Composable
 fun SettingsDialog(
     session: VlcSession,
-    orientation: OrientationMode,
-    onOrientation: (OrientationMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -104,16 +101,19 @@ fun SettingsDialog(
                         FilterChip(selected = session.speed == s, onClick = { session.changeSpeed(s) }, label = { Text(formatSpeed(s)) })
                     }
                 }
+                SectionLabel("Seeking")
+                Text("Fast (keyframes) reduces decoding artifacts on older phones. Precise seeking may land closer to the requested time.",
+                    style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = session.fastSeek, onClick = { session.changeSeekMode(true) },
+                        label = { Text("Fast (keyframes)") })
+                    FilterChip(selected = !session.fastSeek, onClick = { session.changeSeekMode(false) },
+                        label = { Text("Precise") })
+                }
                 SectionLabel("Aspect ratio")
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     AspectMode.values().forEach { m ->
                         FilterChip(selected = session.aspect == m, onClick = { session.changeAspect(m) }, label = { Text(m.label) })
-                    }
-                }
-                SectionLabel("Orientation")
-                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OrientationMode.values().forEach { m ->
-                        FilterChip(selected = orientation == m, onClick = { onOrientation(m) }, label = { Text(m.label) })
                     }
                 }
                 SectionLabel("Automatic SFTP subtitles")
