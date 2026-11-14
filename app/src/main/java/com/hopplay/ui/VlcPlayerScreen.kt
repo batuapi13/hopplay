@@ -79,7 +79,7 @@ import com.hopplay.ui.player.TrackDialog
 import kotlinx.coroutines.delay
 import org.videolan.libvlc.util.VLCVideoLayout
 
-private enum class Dialog { NONE, AUDIO, SUBTITLES, SETTINGS, QUEUE, INFO }
+private enum class Dialog { NONE, AUDIO, SUBTITLES, SETTINGS, QUEUE, INFO, INSPECTOR }
 
 /**
  * Embedded VLC software-decoding player. SFTP itself is still handled by SSHJ
@@ -122,6 +122,8 @@ fun VlcPlayerScreen(
     var feedback by remember { mutableStateOf<String?>(null) }
     var feedbackToken by remember { mutableStateOf(0) }
     var longBuffering by remember { mutableStateOf(false) }
+    var streamStats by remember { mutableStateOf(bridge.stats()) }
+    var throughputMbps by remember { mutableStateOf(0.0) }
     val seekDrag = remember { SeekDragState() }
     // Keep already attached sidecars per playback generation (including re-buffering).
     val attachedSubtitles = remember(session) { mutableStateMapOf<String, Boolean>() }
@@ -198,6 +200,19 @@ fun VlcPlayerScreen(
             }
             val ok = session.attachAutoSubtitle(expectedEpoch, copied, candidate == selected)
             if (ok) attachedSubtitles[identity] = true else copied.delete()
+        }
+    }
+
+    LaunchedEffect(dialog) {
+        if (dialog == Dialog.INSPECTOR) {
+            var previous = bridge.stats()
+            while (true) {
+                delay(1000)
+                val now = bridge.stats()
+                throughputMbps = (now.bytes - previous.bytes).coerceAtLeast(0) * 8.0 / 1_000_000.0
+                streamStats = now
+                previous = now
+            }
         }
     }
 
@@ -336,6 +351,7 @@ fun VlcPlayerScreen(
                     onToggleOrientation = { orientation = orientation.next(); poke() },
                     onSettings = { dialog = Dialog.SETTINGS },
                     onExportLog = ::exportLog,
+                    onNetworkInspector = { dialog = Dialog.INSPECTOR },
                     onQueue = { dialog = Dialog.QUEUE },
                     onMediaInfo = { dialog = Dialog.INFO },
                     onLock = { locked = true; controlsVisible = false },
@@ -419,6 +435,23 @@ fun VlcPlayerScreen(
                     Text("Seekable: " + if (session.seekable) "Yes" else "No")
                     Text("Video decoding: libVLC software")
                     Text("Streaming: authenticated SFTP")
+                }
+            },
+            confirmButton = { TextButton(onClick = { dialog = Dialog.NONE }) { Text("Close") } },
+        )
+        Dialog.INSPECTOR -> AlertDialog(
+            onDismissRequest = { dialog = Dialog.NONE },
+            title = { Text("Network inspector") },
+            text = {
+                Column {
+                    Text("Transport: SFTP via private loopback")
+                    Text("Current throughput: " + "%.2f".format(java.util.Locale.US, throughputMbps) + " Mbps")
+                    Text("Bytes streamed: " + (streamStats.bytes / 1024) + " KiB")
+                    Text("Range requests: " + streamStats.requests)
+                    Text("Read operations: " + streamStats.reads)
+                    Text("Last read latency: " + streamStats.lastReadMs + " ms")
+                    Text("Reads over 2s: " + streamStats.slowReads)
+                    Text("Player state: " + session.state.name)
                 }
             },
             confirmButton = { TextButton(onClick = { dialog = Dialog.NONE }) { Text("Close") } },
