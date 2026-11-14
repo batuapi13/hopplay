@@ -65,6 +65,7 @@ fun PlayerTopBar(
     onToggleOrientation: () -> Unit,
     onSettings: () -> Unit,
     onExportLog: () -> Unit,
+    onNetworkInspector: () -> Unit,
     onQueue: () -> Unit,
     onMediaInfo: () -> Unit,
     onLock: () -> Unit,
@@ -100,6 +101,7 @@ fun PlayerTopBar(
                     onClick = { menu = false; onLock() })
                 DropdownMenuItem(text = { Text("Current folder queue") }, onClick = { menu = false; onQueue() })
                 DropdownMenuItem(text = { Text("Media information") }, onClick = { menu = false; onMediaInfo() })
+                DropdownMenuItem(text = { Text("Network inspector") }, onClick = { menu = false; onNetworkInspector() })
                 DropdownMenuItem(text = { Text("Export diagnostics log") }, onClick = { menu = false; onExportLog() })
             }
         }

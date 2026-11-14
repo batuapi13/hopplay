@@ -11,6 +11,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.hopplay.data.Connection
+import com.hopplay.data.FolderFavourite
 import com.hopplay.data.HistoryEntry
 import com.hopplay.fs.FsEntry
 import com.hopplay.fs.MediaTypes
@@ -28,6 +29,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val controller = PlayerController(app, hp.resume)
 
     val connections = mutableStateListOf<Connection>()
+    val favouriteFolders = mutableStateListOf<FolderFavourite>()
+    fun refreshFavourites() { favouriteFolders.clear(); favouriteFolders.addAll(hp.favourites.all()) }
+    fun isCurrentFavourite(): Boolean = current?.let { hp.favourites.contains(it.id, stack.lastOrNull() ?: "") } ?: false
+    fun toggleCurrentFavourite() {
+        val conn = current ?: return
+        if (conn.protocol != com.hopplay.data.Protocol.SFTP) return
+        hp.favourites.toggle(conn.id, stack.lastOrNull() ?: return)
+        refreshFavourites()
+    }
+    fun openFavourite(pin: FolderFavourite) {
+        val conn = hp.store.get(pin.connectionId) ?: return
+        current = conn
+        fs = hp.registry.get(conn.id)
+        stack.clear()
+        screen = Screen.BROWSE
+        navigate(pin.path, push = true)
+    }
     val recentHistory = mutableStateListOf<HistoryEntry>()
     fun refreshHistory() { recentHistory.clear(); recentHistory.addAll(hp.history.recent()) }
     fun removeHistory(h: HistoryEntry) { hp.history.remove(h.connectionId, h.path); refreshHistory() }
@@ -44,7 +62,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private var fs: RemoteFs? = null
 
-    init { refreshConnections(); refreshHistory() }
+    init { refreshConnections(); refreshHistory(); refreshFavourites() }
 
     fun deleteTrustSession(id: String) { hp.registry.invalidate(id) }
 
@@ -61,6 +79,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun delete(c: Connection) {
         hp.store.delete(c.id)
+        hp.favourites.removeConnection(c.id)
+        refreshFavourites()
         hp.registry.invalidate(c.id)
         refreshConnections()
     }
