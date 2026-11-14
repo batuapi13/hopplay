@@ -60,6 +60,7 @@ import com.hopplay.data.Protocol
 fun HomeScreen(vm: AppViewModel, onAddLocal: () -> Unit) {
     var editing by remember { mutableStateOf<Connection?>(null) }
     var trustReset by remember { mutableStateOf<Connection?>(null) }
+    var showHistory by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.statusBarsPadding().padding(16.dp)) {
@@ -73,6 +74,24 @@ fun HomeScreen(vm: AppViewModel, onAddLocal: () -> Unit) {
                 Button(onClick = { editing = Connection(name = "", protocol = Protocol.SFTP, port = 22) }) { Text("+ SFTP") }
                 OutlinedButton(onClick = onAddLocal) { Text("+ Local") }
                 OutlinedButton(onClick = { editing = Connection(name = "", protocol = Protocol.SMB, port = 445) }) { Text("+ SMB") }
+            }
+            if (vm.recentHistory.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("CONTINUE WATCHING", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { showHistory = true }) { Text("History") }
+                }
+                vm.recentHistory.filter { !it.completed && it.positionMs > 0 }
+                    .take(3).forEach { h ->
+                        Column(Modifier.fillMaxWidth().clickable { vm.openHistory(h) }.padding(vertical = 6.dp)) {
+                            Text(h.name, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodyMedium)
+                            Text("Resume ${com.hopplay.player.formatTime(h.positionMs)}" +
+                                if (h.durationMs > 0) " / ${com.hopplay.player.formatTime(h.durationMs)}" else "",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
             }
             Text("LIBRARY", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.padding(bottom = 8.dp))
@@ -103,6 +122,34 @@ fun HomeScreen(vm: AppViewModel, onAddLocal: () -> Unit) {
                 }
             }
         }
+    }
+    if (showHistory) {
+        AlertDialog(
+            onDismissRequest = { showHistory = false },
+            title = { Text("Playback history") },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    items(vm.recentHistory, key = { it.connectionId + "|" + it.path }) { h ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f).clickable {
+                                showHistory = false
+                                vm.openHistory(h)
+                            }) {
+                                Text(h.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(if (h.completed) "Watched" else "Resume " +
+                                    com.hopplay.player.formatTime(h.positionMs),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall)
+                            }
+                            TextButton(onClick = { vm.removeHistory(h) }) { Text("Remove") }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showHistory = false }) { Text("Close") } },
+            dismissButton = { TextButton(onClick = { vm.clearHistory() }) { Text("Clear all") } },
+        )
     }
     editing?.let { c ->
         ConnectionDialog(c, onDismiss = { editing = null }, onSave = { vm.save(it); editing = null })

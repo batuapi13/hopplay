@@ -21,6 +21,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,6 +36,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.composed
@@ -53,9 +61,13 @@ import com.hopplay.player.PlaybackDiagnostics
 import com.hopplay.player.RESUME_SAVE_INTERVAL_MS
 import com.hopplay.player.SftpLoopbackBridge
 import com.hopplay.player.VlcSession
+import com.hopplay.player.discoverSubtitles
+import com.hopplay.player.bestSubtitle
+import com.hopplay.player.cacheSftpSubtitle
 import com.hopplay.player.dragLevel
 import com.hopplay.player.dragSeekTarget
 import com.hopplay.player.formatTime
+import com.hopplay.player.next
 import com.hopplay.ui.player.FeedbackChip
 import com.hopplay.ui.player.GestureActions
 import com.hopplay.ui.player.GestureLayer
@@ -67,7 +79,7 @@ import com.hopplay.ui.player.TrackDialog
 import kotlinx.coroutines.delay
 import org.videolan.libvlc.util.VLCVideoLayout
 
-private enum class Dialog { NONE, AUDIO, SUBTITLES, SETTINGS }
+private enum class Dialog { NONE, AUDIO, SUBTITLES, SETTINGS, QUEUE, INFO }
 
 /**
  * Embedded VLC software-decoding player. SFTP itself is still handled by SSHJ
@@ -78,6 +90,7 @@ fun VlcPlayerScreen(
     connection: Connection,
     files: List<FsEntry>,
     initialIndex: Int,
+    subtitleFiles: List<FsEntry>,
     onBack: () -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -94,6 +107,9 @@ fun VlcPlayerScreen(
             resumeGet = { app.resume.get(key(it)) },
             resumePut = { i, p -> app.resume.put(key(i), p) },
             resumeClear = { app.resume.clear(key(it)) },
+            historyUpdate = { i, position, duration, completed ->
+                app.history.update(connection.id, files[i].path, files[i].name, position, duration, completed)
+            },
             startIndex = initialIndex,
         )
     }
@@ -107,6 +123,8 @@ fun VlcPlayerScreen(
     var feedbackToken by remember { mutableStateOf(0) }
     var longBuffering by remember { mutableStateOf(false) }
     val seekDrag = remember { SeekDragState() }
+    // Keep already attached sidecars per playback generation (including re-buffering).
+    val attachedSubtitles = remember(session) { mutableStateMapOf<String, Boolean>() }
 
     fun showFeedback(text: String) { feedback = text; feedbackToken++ }
     fun poke() { interaction++ }
@@ -155,6 +173,31 @@ fun VlcPlayerScreen(
         while (true) {
             delay(RESUME_SAVE_INTERVAL_MS)
             session.savePosition()
+        }
+    }
+
+    // Discovery is pure and uses the existing browser listing. SFTP transfer is
+    // small, bounded and dispatched to IO; only matching sidecars are fetched.
+    LaunchedEffect(session.loadEpoch, session.state == PlayState.PLAYING,
+        session.autoSubtitlesEnabled, session.preferredSubtitleLanguage, session.preferEmbeddedSubtitles) {
+        if (!session.autoSubtitlesEnabled || session.state != PlayState.PLAYING) return@LaunchedEffect
+        val expectedEpoch = session.loadEpoch
+        val matches = discoverSubtitles(session.currentFile, subtitleFiles).take(12)
+        val selected = bestSubtitle(matches, session.preferredSubtitleLanguage)
+        if (matches.isNotEmpty()) diagnostics.record("Auto subs matched count=${matches.size}")
+        val fs = app.registry.get(connection.id)
+        for (candidate in matches) {
+            val identity = "$expectedEpoch:" + candidate.entry.path
+            if (attachedSubtitles[identity] == true) continue
+            val copied = runCatching { cacheSftpSubtitle(ctx, fs, candidate.entry) }
+                .onFailure { diagnostics.record("SFTP subtitle load failed: " + it.javaClass.simpleName) }
+                .getOrNull() ?: continue
+            if (session.loadEpoch != expectedEpoch) {
+                copied.delete()
+                return@LaunchedEffect
+            }
+            val ok = session.attachAutoSubtitle(expectedEpoch, copied, candidate == selected)
+            if (ok) attachedSubtitles[identity] = true else copied.delete()
         }
     }
 
@@ -289,8 +332,12 @@ fun VlcPlayerScreen(
                     onBack = onBack,
                     onAudio = { dialog = Dialog.AUDIO },
                     onSubtitles = { dialog = Dialog.SUBTITLES },
+                    orientation = orientation,
+                    onToggleOrientation = { orientation = orientation.next(); poke() },
                     onSettings = { dialog = Dialog.SETTINGS },
                     onExportLog = ::exportLog,
+                    onQueue = { dialog = Dialog.QUEUE },
+                    onMediaInfo = { dialog = Dialog.INFO },
                     onLock = { locked = true; controlsVisible = false },
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
@@ -339,8 +386,42 @@ fun VlcPlayerScreen(
             onDismiss = { dialog = Dialog.NONE },
         )
         Dialog.SETTINGS -> SettingsDialog(
-            session = session, orientation = orientation,
-            onOrientation = { orientation = it }, onDismiss = { dialog = Dialog.NONE },
+            session = session, onDismiss = { dialog = Dialog.NONE },
+        )
+        Dialog.QUEUE -> AlertDialog(
+            onDismissRequest = { dialog = Dialog.NONE },
+            title = { Text("Current folder queue") },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 450.dp)) {
+                    itemsIndexed(files) { i, item ->
+                        TextButton(onClick = {
+                            session.load(i)
+                            dialog = Dialog.NONE
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Text((if (i == session.index) "▶ " else "") + item.name,
+                                maxLines = 2, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { dialog = Dialog.NONE }) { Text("Close") } },
+        )
+        Dialog.INFO -> AlertDialog(
+            onDismissRequest = { dialog = Dialog.NONE },
+            title = { Text("Media information") },
+            text = {
+                Column {
+                    Text(session.currentFile.name)
+                    Text("File size: " + (session.currentFile.size / (1024L * 1024L)) + " MiB")
+                    Text("Duration: " + formatTime(session.lengthMs))
+                    Text("Audio tracks: " + session.audioTracks.size)
+                    Text("Subtitle tracks: " + session.subtitleTracks.size)
+                    Text("Seekable: " + if (session.seekable) "Yes" else "No")
+                    Text("Video decoding: libVLC software")
+                    Text("Streaming: authenticated SFTP")
+                }
+            },
+            confirmButton = { TextButton(onClick = { dialog = Dialog.NONE }) { Text("Close") } },
         )
         Dialog.NONE -> {}
     }

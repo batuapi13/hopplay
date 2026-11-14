@@ -29,6 +29,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +45,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hopplay.player.PlayState
+import com.hopplay.player.OrientationMode
 import com.hopplay.player.formatTime
 
 @Composable
@@ -59,8 +61,12 @@ fun PlayerTopBar(
     onBack: () -> Unit,
     onAudio: () -> Unit,
     onSubtitles: () -> Unit,
+    orientation: OrientationMode,
+    onToggleOrientation: () -> Unit,
     onSettings: () -> Unit,
     onExportLog: () -> Unit,
+    onQueue: () -> Unit,
+    onMediaInfo: () -> Unit,
     onLock: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -79,12 +85,21 @@ fun PlayerTopBar(
         )
         BarIcon(Icons.Filled.Audiotrack, "Audio track", onClick = onAudio)
         BarIcon(Icons.Filled.Subtitles, "Subtitles", onClick = onSubtitles)
+        TextButton(onClick = onToggleOrientation, modifier = Modifier.size(width = 54.dp, height = 48.dp)) {
+            Text(when (orientation) {
+                OrientationMode.AUTO -> "Auto"
+                OrientationMode.LANDSCAPE -> "Land"
+                OrientationMode.PORTRAIT -> "Port"
+            }, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+        }
         BarIcon(Icons.Filled.Settings, "Playback settings", onClick = onSettings)
         Box {
             BarIcon(Icons.Filled.MoreVert, "More options") { menu = true }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("Lock screen") }, leadingIcon = { Icon(Icons.Filled.Lock, null) },
                     onClick = { menu = false; onLock() })
+                DropdownMenuItem(text = { Text("Current folder queue") }, onClick = { menu = false; onQueue() })
+                DropdownMenuItem(text = { Text("Media information") }, onClick = { menu = false; onMediaInfo() })
                 DropdownMenuItem(text = { Text("Export diagnostics log") }, onClick = { menu = false; onExportLog() })
             }
         }

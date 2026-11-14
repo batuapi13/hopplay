@@ -11,6 +11,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.hopplay.data.Connection
+import com.hopplay.data.HistoryEntry
 import com.hopplay.fs.FsEntry
 import com.hopplay.fs.MediaTypes
 import com.hopplay.fs.RemoteFs
@@ -27,18 +28,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val controller = PlayerController(app, hp.resume)
 
     val connections = mutableStateListOf<Connection>()
+    val recentHistory = mutableStateListOf<HistoryEntry>()
+    fun refreshHistory() { recentHistory.clear(); recentHistory.addAll(hp.history.recent()) }
+    fun removeHistory(h: HistoryEntry) { hp.history.remove(h.connectionId, h.path); refreshHistory() }
+    fun clearHistory() { hp.history.clear(); refreshHistory() }
     var screen by mutableStateOf(Screen.HOME)
     var current by mutableStateOf<Connection?>(null)
     val stack = mutableStateListOf<String>()
     var entries by mutableStateOf<List<FsEntry>>(emptyList())
     var vlcFiles by mutableStateOf<List<FsEntry>>(emptyList())
+    var vlcSubtitleFiles by mutableStateOf<List<FsEntry>>(emptyList())
     var vlcStartIndex by mutableStateOf(0)
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
 
     private var fs: RemoteFs? = null
 
-    init { refreshConnections() }
+    init { refreshConnections(); refreshHistory() }
 
     fun deleteTrustSession(id: String) { hp.registry.invalidate(id) }
 
@@ -86,6 +92,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun home() {
         screen = Screen.HOME
         entries = emptyList()
+        refreshHistory()
     }
 
     private fun navigate(path: String, push: Boolean) {
@@ -112,6 +119,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (files.isEmpty()) return
         if (conn.protocol == com.hopplay.data.Protocol.SFTP) {
             vlcFiles = files
+            // Reuse the listing already fetched for browsing; no extra SFTP list call.
+            vlcSubtitleFiles = entries.filter { !it.isDir && MediaTypes.subtitleMime(it.name) != null }
             vlcStartIndex = files.indexOf(entry).coerceAtLeast(0)
             screen = Screen.VLC
             return
@@ -119,6 +128,43 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val items = files.map { buildItem(fs, conn, it) }
         controller.play(items, files.indexOf(entry).coerceAtLeast(0))
         screen = Screen.PLAYER
+    }
+
+    /** Open a history item without losing the current folder's playlist semantics. */
+    fun openHistory(item: HistoryEntry) {
+        val conn = hp.store.get(item.connectionId)
+        if (conn == null) { error = "Saved connection no longer exists"; return }
+        current = conn
+        val target = item.path
+        val folder = target.substringBeforeLast('/', "").ifBlank { "/" }
+        loading = true
+        error = null
+        viewModelScope.launch {
+            try {
+                val remote = hp.registry.get(conn.id)
+                val list = withContext(Dispatchers.IO) { remote.list(folder).sortedWith(entryOrder) }
+                val media = list.filter { !it.isDir && MediaTypes.isPlayable(it.name) }
+                val start = media.indexOfFirst { it.path == target }
+                if (start < 0) { error = "The file is no longer in that folder"; return@launch }
+                fs = remote
+                stack.clear()
+                stack.add(folder)
+                entries = list.filter { it.isDir || MediaTypes.isPlayable(it.name) || MediaTypes.subtitleMime(it.name) != null }
+                if (conn.protocol == com.hopplay.data.Protocol.SFTP) {
+                    vlcFiles = media
+                    vlcSubtitleFiles = list.filter { !it.isDir && MediaTypes.subtitleMime(it.name) != null }
+                    vlcStartIndex = start
+                    screen = Screen.VLC
+                } else {
+                    controller.play(media.map { buildItem(remote, conn, it) }, start)
+                    screen = Screen.PLAYER
+                }
+            } catch (t: Throwable) {
+                error = "Cannot reopen media: " + t.javaClass.simpleName
+            } finally {
+                loading = false
+            }
+        }
     }
 
     private fun buildItem(fs: RemoteFs, conn: Connection, e: FsEntry): MediaItem {
@@ -142,8 +188,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun closeVlc() {
+        refreshHistory()
         screen = Screen.BROWSE
         vlcFiles = emptyList()
+        vlcSubtitleFiles = emptyList()
     }
 
     fun closePlayer() {

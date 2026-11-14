@@ -36,8 +36,10 @@ class VlcSession(
     private val resumeGet: (Int) -> Long?,
     private val resumePut: (Int, Long) -> Unit,
     private val resumeClear: (Int) -> Unit,
+    private val historyUpdate: (Int, Long, Long, Boolean) -> Unit,
     startIndex: Int,
 ) {
+    private val prefs = ctx.getSharedPreferences("hopplay-subtitles", Context.MODE_PRIVATE)
     private val vlc = LibVLC(ctx, arrayListOf("--no-video-title-show", "--network-caching=500"))
     val player = MediaPlayer(vlc)
 
@@ -53,10 +55,17 @@ class VlcSession(
     var audioTracks by mutableStateOf<List<TrackOption>>(emptyList()); private set
     var subtitleTracks by mutableStateOf<List<TrackOption>>(emptyList()); private set
     var subtitlesOff by mutableStateOf(true); private set
+    var autoSubtitlesEnabled by mutableStateOf(prefs.getBoolean("auto-enabled", true)); private set
+    var preferredSubtitleLanguage by mutableStateOf(prefs.getString("language", "en") ?: "en"); private set
+    var preferEmbeddedSubtitles by mutableStateOf(prefs.getBoolean("embedded-first", true)); private set
+    var loadEpoch by mutableIntStateOf(0); private set
+    private var manualSubtitleOff = false
 
+    var fastSeek by mutableStateOf(true); private set
     var speed by mutableFloatStateOf(1f); private set
     var aspect by mutableStateOf(AspectMode.FIT); private set
     var subtitleDelayMs by mutableLongStateOf(0L); private set
+    var audioDelayMs by mutableLongStateOf(0L); private set
     var subtitleSize by mutableStateOf(SubtitleSize.NORMAL); private set
     var subtitleColor by mutableStateOf(SubtitleColor.WHITE); private set
 
@@ -85,6 +94,8 @@ class VlcSession(
         if (released) return
         savePosition()
         index = newIndex.coerceIn(0, files.lastIndex)
+        lastResumeWriteMs = -1L
+        loadEpoch++
         state = PlayState.LOADING
         errorMessage = null
         positionMs = 0L
@@ -150,6 +161,7 @@ class VlcSession(
             }
             MediaPlayer.Event.EndReached -> {
                 resumeClear(index)
+                historyUpdate(index, lengthMs, lengthMs, true)
                 val next = nextIndex(index, files.size)
                 diagnostics.record("VLC end reached index=$index next=${next ?: "none"}")
                 if (next != null) load(next) else state = PlayState.ENDED
@@ -160,10 +172,11 @@ class VlcSession(
     private fun applySessionSettings() {
         pendingResumeMs?.let {
             pendingResumeMs = null
-            if (it > 0) player.time = it
+            if (it > 0) player.setTime(it, true)
         }
         if (speed != 1f) player.rate = speed
         if (subtitleDelayMs != 0L) player.spuDelay = subtitleDelayMs * 1000
+        if (audioDelayMs != 0L) player.setAudioDelay(audioDelayMs * 1000)
         applyAspect()
     }
 
@@ -194,10 +207,36 @@ class VlcSession(
     }
 
     fun selectSubtitle(option: TrackOption?) {
+        manualSubtitleOff = option == null
         player.spuTrack = option?.id ?: -1
         preferredSubtitle = option?.label ?: ""
         diagnostics.record(if (option == null) "Subtitles off" else "Subtitle track switched")
         refreshTracks()
+    }
+
+    fun configureAutoSubtitles(enabled: Boolean = autoSubtitlesEnabled,
+                               language: String = preferredSubtitleLanguage,
+                               embeddedFirst: Boolean = preferEmbeddedSubtitles) {
+        autoSubtitlesEnabled = enabled
+        preferredSubtitleLanguage = language
+        preferEmbeddedSubtitles = embeddedFirst
+        prefs.edit().putBoolean("auto-enabled", enabled)
+            .putString("language", language).putBoolean("embedded-first", embeddedFirst).apply()
+    }
+
+    /**
+     * Only attach to the same playback generation from which discovery started.
+     * A manual Off choice always wins. Never force-select unknown-language tracks.
+     */
+    fun attachAutoSubtitle(expectedEpoch: Int, localFile: File, select: Boolean): Boolean {
+        if (released || expectedEpoch != loadEpoch || !autoSubtitlesEnabled) return false
+        val shouldSelect = select && !manualSubtitleOff &&
+            preferredSubtitleLanguage != "none" &&
+            (!preferEmbeddedSubtitles || player.spuTrack == -1)
+        val ok = player.addSlave(IMedia.Slave.Type.Subtitle, Uri.fromFile(localFile), shouldSelect)
+        diagnostics.record("SFTP sidecar attached ok=$ok selected=$shouldSelect format=" + localFile.extension)
+        if (ok) refreshTracks()
+        return ok
     }
 
     /** Copies the picked document into app cache so libVLC can open it as a plain file. */
@@ -217,6 +256,12 @@ class VlcSession(
             diagnostics.record("External subtitle failed: ${it.javaClass.simpleName}")
             false
         }
+    }
+
+    fun setAudioDelay(ms: Long) {
+        audioDelayMs = ms.coerceIn(-60_000L, 60_000L)
+        player.setAudioDelay(audioDelayMs * 1000)
+        diagnostics.record("Audio delay changed ms=$audioDelayMs")
     }
 
     fun setSubtitleDelay(ms: Long) {
@@ -268,11 +313,18 @@ class VlcSession(
         }
     }
 
+    /** Keyframe-oriented seeking is the default for smoother playback on older phones. */
+    fun changeSeekMode(enabled: Boolean) {
+        fastSeek = enabled
+        diagnostics.record("Seek mode=" + if (enabled) "fast-keyframe" else "precise")
+    }
+
     fun seekTo(ms: Long) {
         if (!seekable && lengthMs <= 0) return
         val target = if (lengthMs > 0) ms.coerceIn(0, lengthMs) else ms.coerceAtLeast(0)
-        player.time = target
-        positionMs = target
+        diagnostics.record("VLC seek fromMs=$positionMs toMs=$target fast=$fastSeek")
+        player.setTime(target, fastSeek)
+        // TimeChanged reports actual position (fast mode may land at a keyframe).
     }
 
     fun seekBy(deltaMs: Long) = seekTo(positionMs + deltaMs)
@@ -290,10 +342,14 @@ class VlcSession(
     fun savePosition() {
         if (released || state == PlayState.LOADING) return
         if (shouldClearResume(positionMs, lengthMs)) {
-            if (lastResumeWriteMs != -2L) resumeClear(index)
+            if (lastResumeWriteMs != -2L) {
+                resumeClear(index)
+                if (positionMs > 0) historyUpdate(index, positionMs, lengthMs, lengthMs > 0 && positionMs >= lengthMs - RESUME_EDGE_MS)
+            }
             lastResumeWriteMs = -2L
         } else if (lastResumeWriteMs < 0 || kotlin.math.abs(positionMs - lastResumeWriteMs) >= 2_000L) {
             resumePut(index, positionMs)
+            historyUpdate(index, positionMs, lengthMs, false)
             lastResumeWriteMs = positionMs
         }
     }

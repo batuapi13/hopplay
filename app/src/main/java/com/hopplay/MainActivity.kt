@@ -65,7 +65,7 @@ private fun Root(vm: AppViewModel) {
         Screen.VLC -> {
             val connection = vm.current
             if (connection != null && vm.vlcFiles.isNotEmpty()) {
-                VlcPlayerScreen(connection, vm.vlcFiles, vm.vlcStartIndex, onBack = vm::closeVlc)
+                VlcPlayerScreen(connection, vm.vlcFiles, vm.vlcStartIndex, subtitleFiles = vm.vlcSubtitleFiles, onBack = vm::closeVlc)
             }
         }
         Screen.PLAYER -> {

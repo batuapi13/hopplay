@@ -33,7 +33,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.hopplay.player.AspectMode
-import com.hopplay.player.OrientationMode
 import com.hopplay.player.PlayState
 import com.hopplay.player.SPEED_OPTIONS
 import com.hopplay.player.SubtitleColor
@@ -89,8 +88,6 @@ private fun SectionLabel(text: String) =
 @Composable
 fun SettingsDialog(
     session: VlcSession,
-    orientation: OrientationMode,
-    onOrientation: (OrientationMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -104,16 +101,44 @@ fun SettingsDialog(
                         FilterChip(selected = session.speed == s, onClick = { session.changeSpeed(s) }, label = { Text(formatSpeed(s)) })
                     }
                 }
+                SectionLabel("Seeking")
+                Text("Fast (keyframes) reduces decoding artifacts on older phones. Precise seeking may land closer to the requested time.",
+                    style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = session.fastSeek, onClick = { session.changeSeekMode(true) },
+                        label = { Text("Fast (keyframes)") })
+                    FilterChip(selected = !session.fastSeek, onClick = { session.changeSeekMode(false) },
+                        label = { Text("Precise") })
+                }
                 SectionLabel("Aspect ratio")
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     AspectMode.values().forEach { m ->
                         FilterChip(selected = session.aspect == m, onClick = { session.changeAspect(m) }, label = { Text(m.label) })
                     }
                 }
-                SectionLabel("Orientation")
-                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OrientationMode.values().forEach { m ->
-                        FilterChip(selected = orientation == m, onClick = { onOrientation(m) }, label = { Text(m.label) })
+                SectionLabel("Automatic SFTP subtitles")
+                FilterChip(selected = session.autoSubtitlesEnabled,
+                    onClick = { session.configureAutoSubtitles(enabled = !session.autoSubtitlesEnabled) },
+                    label = { Text(if (session.autoSubtitlesEnabled) "Discovery on" else "Discovery off") })
+                if (session.autoSubtitlesEnabled) {
+                    Text("Preferred language (saved on this device)", style = MaterialTheme.typography.bodySmall)
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("en" to "English", "ms" to "Malay", "ja" to "Japanese", "none" to "Don't select")
+                            .forEach { (code, label) ->
+                                FilterChip(selected = session.preferredSubtitleLanguage == code,
+                                    onClick = { session.configureAutoSubtitles(language = code) },
+                                    label = { Text(label) })
+                            }
+                    }
+                    Text("When embedded and matching external subtitles both exist",
+                        style = MaterialTheme.typography.bodySmall)
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(selected = session.preferEmbeddedSubtitles,
+                            onClick = { session.configureAutoSubtitles(embeddedFirst = true) },
+                            label = { Text("Prefer embedded") })
+                        FilterChip(selected = !session.preferEmbeddedSubtitles,
+                            onClick = { session.configureAutoSubtitles(embeddedFirst = false) },
+                            label = { Text("Prefer external") })
                     }
                 }
                 SectionLabel("Subtitle size (restarts at current position)")
@@ -127,6 +152,12 @@ fun SettingsDialog(
                     SubtitleColor.values().forEach { m ->
                         FilterChip(selected = session.subtitleColor == m, onClick = { session.setSubtitleStyle(color = m) }, label = { Text(m.label) })
                     }
+                }
+                SectionLabel("Audio sync delay: ${session.audioDelayMs} ms")
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(onClick = { session.setAudioDelay(session.audioDelayMs - 100) }) { Text("-100ms") }
+                    OutlinedButton(onClick = { session.setAudioDelay(session.audioDelayMs + 100) }) { Text("+100ms") }
+                    TextButton(onClick = { session.setAudioDelay(0) }) { Text("Reset") }
                 }
                 SectionLabel("Subtitle delay: ${session.subtitleDelayMs} ms")
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
