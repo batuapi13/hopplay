@@ -32,6 +32,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val stack = mutableStateListOf<String>()
     var entries by mutableStateOf<List<FsEntry>>(emptyList())
     var vlcFiles by mutableStateOf<List<FsEntry>>(emptyList())
+    var vlcSubtitleFiles by mutableStateOf<List<FsEntry>>(emptyList())
     var vlcStartIndex by mutableStateOf(0)
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
@@ -112,6 +113,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (files.isEmpty()) return
         if (conn.protocol == com.hopplay.data.Protocol.SFTP) {
             vlcFiles = files
+            // Reuse the listing already fetched for browsing; no extra SFTP list call.
+            vlcSubtitleFiles = entries.filter { !it.isDir && MediaTypes.subtitleMime(it.name) != null }
             vlcStartIndex = files.indexOf(entry).coerceAtLeast(0)
             screen = Screen.VLC
             return
@@ -144,6 +147,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun closeVlc() {
         screen = Screen.BROWSE
         vlcFiles = emptyList()
+        vlcSubtitleFiles = emptyList()
     }
 
     fun closePlayer() {
