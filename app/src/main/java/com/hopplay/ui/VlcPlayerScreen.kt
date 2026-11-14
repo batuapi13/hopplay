@@ -54,7 +54,6 @@ import com.hopplay.player.PlaybackDiagnostics
 import com.hopplay.player.RESUME_SAVE_INTERVAL_MS
 import com.hopplay.player.SftpLoopbackBridge
 import com.hopplay.player.VlcSession
-import com.hopplay.player.PlayState
 import com.hopplay.player.discoverSubtitles
 import com.hopplay.player.bestSubtitle
 import com.hopplay.player.cacheSftpSubtitle
