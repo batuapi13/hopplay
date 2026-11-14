@@ -1,6 +1,11 @@
 package com.hopplay
 
 import android.app.Application
+import android.content.ComponentName
+import androidx.core.content.ContextCompat
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.hopplay.player.HopPlayAudioService
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +42,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var error by mutableStateOf<String?>(null)
 
     private var fs: RemoteFs? = null
+    private var backgroundController: MediaController? = null
 
     init { refreshConnections() }
 
@@ -121,6 +127,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         screen = Screen.PLAYER
     }
 
+    /** Explicit opt-in: only audio files are queued in the foreground MediaSession. */
+    fun playBackgroundAudio(entry: FsEntry) {
+        val remote = fs ?: return
+        val conn = current ?: return
+        val audio = entries.filter { !it.isDir && MediaTypes.isAudio(it.name) }
+        val start = audio.indexOfFirst { it.path == entry.path }
+        if (start < 0) return
+        val items = audio.map { file ->
+            MediaItem.Builder()
+                .setUri(remote.playbackUri(file.path))
+                .setMediaId(conn.id + "|" + file.path)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(file.name).build())
+                .build()
+        }
+        val token = SessionToken(hp, ComponentName(hp, HopPlayAudioService::class.java))
+        val controllerFuture = MediaController.Builder(hp, token).buildAsync()
+        controllerFuture.addListener({
+            runCatching {
+                val controller = controllerFuture.get()
+                backgroundController?.release()
+                backgroundController = controller
+                controller.setMediaItems(items, start, C.TIME_UNSET)
+                controller.prepare()
+                controller.play()
+            }.onFailure { error = "Background audio failed: " + it.javaClass.simpleName }
+        }, ContextCompat.getMainExecutor(hp))
+    }
+
     private fun buildItem(fs: RemoteFs, conn: Connection, e: FsEntry): MediaItem {
         val base = e.name.substringBeforeLast('.')
         val subs = entries.filter { s ->
@@ -152,6 +186,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        backgroundController?.release()
         controller.release()
     }
 }
