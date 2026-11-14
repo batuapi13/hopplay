@@ -3,6 +3,7 @@ package com.hopplay.player
 import androidx.media3.common.AudioAttributes
 import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -19,10 +20,12 @@ class HopPlayAudioService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         val diagnostics = PlaybackDiagnostics()
-        val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(
-                DefaultMediaSourceFactory(DataSource.Factory { RoutingDataSource(this, diagnostics) })
-            )
+        val player = ExoPlayer.Builder(
+            this,
+            DefaultRenderersFactory(this)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER),
+            DefaultMediaSourceFactory(DataSource.Factory { RoutingDataSource(this, diagnostics) }),
+        )
             .setAudioAttributes(AudioAttributes.DEFAULT, true)
             .setHandleAudioBecomingNoisy(true)
             .build()
