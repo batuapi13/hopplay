@@ -65,6 +65,8 @@ fun PlayerTopBar(
     onToggleOrientation: () -> Unit,
     onSettings: () -> Unit,
     onExportLog: () -> Unit,
+    onQueue: () -> Unit,
+    onMediaInfo: () -> Unit,
     onLock: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -96,6 +98,8 @@ fun PlayerTopBar(
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("Lock screen") }, leadingIcon = { Icon(Icons.Filled.Lock, null) },
                     onClick = { menu = false; onLock() })
+                DropdownMenuItem(text = { Text("Current folder queue") }, onClick = { menu = false; onQueue() })
+                DropdownMenuItem(text = { Text("Media information") }, onClick = { menu = false; onMediaInfo() })
                 DropdownMenuItem(text = { Text("Export diagnostics log") }, onClick = { menu = false; onExportLog() })
             }
         }
