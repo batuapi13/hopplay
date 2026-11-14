@@ -60,6 +60,7 @@ class VlcSession(
     var loadEpoch by mutableIntStateOf(0); private set
     private var manualSubtitleOff = false
 
+    var fastSeek by mutableStateOf(true); private set
     var speed by mutableFloatStateOf(1f); private set
     var aspect by mutableStateOf(AspectMode.FIT); private set
     var subtitleDelayMs by mutableLongStateOf(0L); private set
@@ -167,7 +168,7 @@ class VlcSession(
     private fun applySessionSettings() {
         pendingResumeMs?.let {
             pendingResumeMs = null
-            if (it > 0) player.time = it
+            if (it > 0) player.setTime(it, true)
         }
         if (speed != 1f) player.rate = speed
         if (subtitleDelayMs != 0L) player.spuDelay = subtitleDelayMs * 1000
@@ -301,11 +302,18 @@ class VlcSession(
         }
     }
 
+    /** Keyframe-oriented seeking is the default for smoother playback on older phones. */
+    fun changeSeekMode(enabled: Boolean) {
+        fastSeek = enabled
+        diagnostics.record("Seek mode=" + if (enabled) "fast-keyframe" else "precise")
+    }
+
     fun seekTo(ms: Long) {
         if (!seekable && lengthMs <= 0) return
         val target = if (lengthMs > 0) ms.coerceIn(0, lengthMs) else ms.coerceAtLeast(0)
-        player.time = target
-        positionMs = target
+        diagnostics.record("VLC seek fromMs=$positionMs toMs=$target fast=$fastSeek")
+        player.setTime(target, fastSeek)
+        // TimeChanged reports actual position (fast mode may land at a keyframe).
     }
 
     fun seekBy(deltaMs: Long) = seekTo(positionMs + deltaMs)
