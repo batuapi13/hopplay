@@ -6,6 +6,7 @@ import com.hopplay.data.Connection
 import com.hopplay.data.ConnectionStore
 import com.hopplay.data.Protocol
 import com.hopplay.data.ResumeStore
+import com.hopplay.data.PlaybackHistory
 import com.hopplay.fs.LocalFs
 import com.hopplay.fs.RemoteFs
 import com.hopplay.fs.SftpFs
@@ -35,6 +36,7 @@ class HopPlayApp : Application() {
     lateinit var store: ConnectionStore
     lateinit var registry: FsRegistry
     lateinit var resume: ResumeStore
+    lateinit var history: PlaybackHistory
 
     override fun onCreate() {
         super.onCreate()
@@ -44,6 +46,7 @@ class HopPlayApp : Application() {
         store = ConnectionStore(this)
         registry = FsRegistry(this, store)
         resume = ResumeStore(this)
+        history = PlaybackHistory(this)
     }
 
     companion object {
