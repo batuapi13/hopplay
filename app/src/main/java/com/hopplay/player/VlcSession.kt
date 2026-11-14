@@ -65,6 +65,7 @@ class VlcSession(
     var speed by mutableFloatStateOf(1f); private set
     var aspect by mutableStateOf(AspectMode.FIT); private set
     var subtitleDelayMs by mutableLongStateOf(0L); private set
+    var audioDelayMs by mutableLongStateOf(0L); private set
     var subtitleSize by mutableStateOf(SubtitleSize.NORMAL); private set
     var subtitleColor by mutableStateOf(SubtitleColor.WHITE); private set
 
@@ -175,6 +176,7 @@ class VlcSession(
         }
         if (speed != 1f) player.rate = speed
         if (subtitleDelayMs != 0L) player.spuDelay = subtitleDelayMs * 1000
+        if (audioDelayMs != 0L) player.setAudioDelay(audioDelayMs * 1000)
         applyAspect()
     }
 
@@ -254,6 +256,12 @@ class VlcSession(
             diagnostics.record("External subtitle failed: ${it.javaClass.simpleName}")
             false
         }
+    }
+
+    fun setAudioDelay(ms: Long) {
+        audioDelayMs = ms.coerceIn(-60_000L, 60_000L)
+        player.setAudioDelay(audioDelayMs * 1000)
+        diagnostics.record("Audio delay changed ms=$audioDelayMs")
     }
 
     fun setSubtitleDelay(ms: Long) {
