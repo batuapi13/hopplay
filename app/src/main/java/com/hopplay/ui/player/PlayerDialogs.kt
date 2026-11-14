@@ -116,6 +116,31 @@ fun SettingsDialog(
                         FilterChip(selected = orientation == m, onClick = { onOrientation(m) }, label = { Text(m.label) })
                     }
                 }
+                SectionLabel("Automatic SFTP subtitles")
+                FilterChip(selected = session.autoSubtitlesEnabled,
+                    onClick = { session.configureAutoSubtitles(enabled = !session.autoSubtitlesEnabled) },
+                    label = { Text(if (session.autoSubtitlesEnabled) "Discovery on" else "Discovery off") })
+                if (session.autoSubtitlesEnabled) {
+                    Text("Preferred language (saved on this device)", style = MaterialTheme.typography.bodySmall)
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("en" to "English", "ms" to "Malay", "ja" to "Japanese", "none" to "Don't select")
+                            .forEach { (code, label) ->
+                                FilterChip(selected = session.preferredSubtitleLanguage == code,
+                                    onClick = { session.configureAutoSubtitles(language = code) },
+                                    label = { Text(label) })
+                            }
+                    }
+                    Text("When embedded and matching external subtitles both exist",
+                        style = MaterialTheme.typography.bodySmall)
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(selected = session.preferEmbeddedSubtitles,
+                            onClick = { session.configureAutoSubtitles(embeddedFirst = true) },
+                            label = { Text("Prefer embedded") })
+                        FilterChip(selected = !session.preferEmbeddedSubtitles,
+                            onClick = { session.configureAutoSubtitles(embeddedFirst = false) },
+                            label = { Text("Prefer external") })
+                    }
+                }
                 SectionLabel("Subtitle size (restarts at current position)")
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     SubtitleSize.values().forEach { m ->
