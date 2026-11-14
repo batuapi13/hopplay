@@ -14,8 +14,9 @@ android {
         applicationId = "com.hopplay"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI uses its monotonic run number; local debug builds retain a default version.
+        versionCode = providers.environmentVariable("HOPPLAY_BUILD_NUMBER").orNull?.toIntOrNull() ?: 1
+        versionName = "0.3.1"
     }
 
     splits {
@@ -27,7 +28,24 @@ android {
         }
     }
 
+    signingConfigs {
+        // Private keystore material is supplied at build time, never committed to Git.
+        val store = providers.environmentVariable("HOPPLAY_SIGNING_STORE").orNull
+        if (store != null) {
+            create("persistent") {
+                storeFile = file(store)
+                storePassword = providers.environmentVariable("HOPPLAY_STORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("HOPPLAY_KEY_ALIAS").get()
+                keyPassword = providers.environmentVariable("HOPPLAY_KEY_PASSWORD").get()
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (signingConfigs.findByName("persistent") != null)
+                signingConfig = signingConfigs.getByName("persistent")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
