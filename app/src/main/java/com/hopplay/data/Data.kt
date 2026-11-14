@@ -8,6 +8,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 enum class Protocol { LOCAL, SFTP, SMB }
+enum class SftpAuth { PASSWORD, PRIVATE_KEY }
 
 /** For LOCAL, [host] holds the persisted SAF tree URI. */
 data class Connection(
@@ -18,6 +19,9 @@ data class Connection(
     val port: Int = 0,
     val user: String = "",
     val password: String = "",
+    val sftpAuth: SftpAuth = SftpAuth.PASSWORD,
+    val privateKeyPem: String = "",
+    val keyPassphrase: String = "",
     val share: String = "",
     val domain: String = "",
     val path: String = "/",
@@ -57,14 +61,19 @@ class ConnectionStore(ctx: Context) {
     private fun toJson(c: Connection) = JSONObject()
         .put("id", c.id).put("name", c.name).put("protocol", c.protocol.name)
         .put("host", c.host).put("port", c.port).put("user", c.user)
-        .put("password", c.password).put("share", c.share).put("domain", c.domain)
+        .put("password", c.password).put("sftpAuth", c.sftpAuth.name)
+        .put("privateKeyPem", c.privateKeyPem).put("keyPassphrase", c.keyPassphrase)
+        .put("share", c.share).put("domain", c.domain)
         .put("path", c.path)
 
     private fun fromJson(o: JSONObject) = Connection(
         id = o.getString("id"), name = o.getString("name"),
         protocol = Protocol.valueOf(o.getString("protocol")),
         host = o.optString("host"), port = o.optInt("port"), user = o.optString("user"),
-        password = o.optString("password"), share = o.optString("share"),
+        password = o.optString("password"),
+        sftpAuth = runCatching { SftpAuth.valueOf(o.optString("sftpAuth", "PASSWORD")) }.getOrDefault(SftpAuth.PASSWORD),
+        privateKeyPem = o.optString("privateKeyPem"), keyPassphrase = o.optString("keyPassphrase"),
+        share = o.optString("share"),
         domain = o.optString("domain"), path = o.optString("path", "/"),
     )
 
