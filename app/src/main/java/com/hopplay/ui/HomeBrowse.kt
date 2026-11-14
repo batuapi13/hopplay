@@ -9,6 +9,8 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -73,6 +75,20 @@ fun HomeScreen(vm: AppViewModel, onAddLocal: () -> Unit) {
                 Button(onClick = { editing = Connection(name = "", protocol = Protocol.SFTP, port = 22) }) { Text("+ SFTP") }
                 OutlinedButton(onClick = onAddLocal) { Text("+ Local") }
                 OutlinedButton(onClick = { editing = Connection(name = "", protocol = Protocol.SMB, port = 445) }) { Text("+ SMB") }
+            }
+            if (vm.favouriteFolders.isNotEmpty()) {
+                Text("FAVOURITE FOLDERS", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.secondary)
+                vm.favouriteFolders.take(5).forEach { pin ->
+                    val conn = vm.connections.firstOrNull { it.id == pin.connectionId }
+                    if (conn != null) {
+                        TextButton(onClick = { vm.openFavourite(pin) }) {
+                            Icon(Icons.Filled.FolderOpen, contentDescription = null)
+                            Text("  " + conn.name + " · " + pin.path.substringAfterLast('/').ifBlank { "/" },
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
             }
             Text("LIBRARY", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.padding(bottom = 8.dp))
@@ -178,6 +194,13 @@ fun BrowseScreen(vm: AppViewModel) {
             Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { if (!vm.up()) vm.home() }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Up one folder")
+                }
+                if (vm.current?.protocol == Protocol.SFTP) {
+                    IconButton(onClick = vm::toggleCurrentFavourite) {
+                        Icon(if (vm.isCurrentFavourite()) Icons.Filled.Star else Icons.Filled.StarBorder,
+                            contentDescription = if (vm.isCurrentFavourite()) "Unpin folder" else "Pin folder",
+                            tint = MaterialTheme.colorScheme.primary)
+                    }
                 }
                 Column(Modifier.weight(1f)) {
                     Text(vm.current?.name.orEmpty(), style = MaterialTheme.typography.titleMedium, maxLines = 1)
