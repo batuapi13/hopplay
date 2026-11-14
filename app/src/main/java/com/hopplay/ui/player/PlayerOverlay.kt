@@ -61,6 +61,7 @@ fun PlayerTopBar(
     onSubtitles: () -> Unit,
     onSettings: () -> Unit,
     onExportLog: () -> Unit,
+    onNetworkInspector: () -> Unit,
     onLock: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -85,6 +86,7 @@ fun PlayerTopBar(
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("Lock screen") }, leadingIcon = { Icon(Icons.Filled.Lock, null) },
                     onClick = { menu = false; onLock() })
+                DropdownMenuItem(text = { Text("Network inspector") }, onClick = { menu = false; onNetworkInspector() })
                 DropdownMenuItem(text = { Text("Export diagnostics log") }, onClick = { menu = false; onExportLog() })
             }
         }
