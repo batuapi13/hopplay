@@ -96,7 +96,6 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
 
     implementation("androidx.media3:media3-exoplayer:$media3")
-    implementation("androidx.media3:media3-session:$media3")
     implementation("androidx.media3:media3-ui:$media3")
 
     // Embedded VLC/FFmpeg video and audio engine for Hi10P/HEVC Main10/legacy AVI.

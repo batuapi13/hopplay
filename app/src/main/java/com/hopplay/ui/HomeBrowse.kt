@@ -8,7 +8,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -340,13 +339,7 @@ fun BrowseScreen(vm: AppViewModel) {
                                     contentDescription = null,
                                     tint = if (e.isDir) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                Text(e.name, Modifier.weight(1f).padding(start = 16.dp),
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                if (!e.isDir && com.hopplay.fs.MediaTypes.isAudio(e.name)) {
-                                    IconButton(onClick = { vm.playBackgroundAudio(e) }) {
-                                        Icon(Icons.Filled.Headphones, contentDescription = "Play audio in background")
-                                    }
-                                }
+                                Text(e.name, Modifier.padding(start = 16.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
