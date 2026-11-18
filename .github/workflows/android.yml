@@ -2,7 +2,7 @@ name: Android debug build
 
 on:
   push:
-    branches: [main, 'test/combined-reconnect-sshkey-media']
+    branches: [main]
   pull_request:
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
       # PRs compile with ephemeral debug keys for validation only. They never
       # publish installable update artifacts. Main uses one persisted keystore.
       - name: Restore persistent app signing identity
-        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test/combined-reconnect-sshkey-media') && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
           KEYSTORE_BASE64: ${{ secrets.HOPPLAY_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.HOPPLAY_STORE_PASSWORD }}
@@ -44,7 +44,7 @@ jobs:
       - name: Assemble FFmpeg-enabled debug APK
         run: gradle --no-daemon assembleDebug -Pffmpeg=true
       - uses: actions/upload-artifact@v4
-        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test/combined-reconnect-sshkey-media') && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         with:
-          name: hopplay-ffmpeg-debug-apk-preview
+          name: hopplay-ffmpeg-debug-apk
           path: app/build/outputs/apk/debug/*.apk
