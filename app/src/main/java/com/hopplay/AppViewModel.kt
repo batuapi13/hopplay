@@ -2,6 +2,7 @@ package com.hopplay
 
 import android.app.Application
 import android.content.ComponentName
+import android.content.Intent
 import androidx.core.content.ContextCompat
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -206,6 +207,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 .setMediaId(conn.id + "|" + file.path)
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(file.name).build())
                 .build()
+        }
+        // This must be a started AND bound service: binding alone can disappear
+        // when the browsing activity is reclaimed after the display locks.
+        // The visible user's headphone tap is a foreground service-start context.
+        try {
+            hp.startService(Intent(hp, HopPlayAudioService::class.java))
+        } catch (t: RuntimeException) {
+            error = "Unable to start background audio service: " + t.javaClass.simpleName
+            return
         }
         val token = SessionToken(hp, ComponentName(hp, HopPlayAudioService::class.java))
         val controllerFuture = MediaController.Builder(hp, token).buildAsync()
