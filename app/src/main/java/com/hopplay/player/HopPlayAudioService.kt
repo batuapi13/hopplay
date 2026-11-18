@@ -1,5 +1,6 @@
 package com.hopplay.player
 
+import androidx.media3.common.C
 import androidx.media3.common.AudioAttributes
 import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -28,6 +29,8 @@ class HopPlayAudioService : MediaSessionService() {
         )
             .setAudioAttributes(AudioAttributes.DEFAULT, true)
             .setHandleAudioBecomingNoisy(true)
+            // Audio continues streaming with the display off; ExoPlayer owns/releases the lock.
+            .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
         audioPlayer = player
         audioSession = MediaSession.Builder(this, player).build()
