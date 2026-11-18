@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import android.util.Base64
 import com.hopplay.data.Connection
+import com.hopplay.data.SftpAuth
+import net.schmizz.sshj.userauth.password.PasswordUtils
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.sftp.FileMode
 import net.schmizz.sshj.sftp.RemoteFile
@@ -77,25 +79,42 @@ class SftpFs(c: Connection, ctx: Context) : NetworkFs(c) {
     private var sftp: SFTPClient? = null
 
     @Synchronized
-    private fun client(): SFTPClient {
-        val cur = sftp
-        if (cur != null && ssh?.isConnected == true) return cur
+    private fun resetTransport() {
         runCatching { sftp?.close() }
         runCatching { ssh?.disconnect() }
         sftp = null
         ssh = null
-        val k = SSHClient()
-        k.addHostKeyVerifier(verifier)
-        k.connectTimeout = 15_000
+    }
+
+    @Synchronized
+    private fun client(): SFTPClient {
+        val current = sftp
+        if (current != null && ssh?.isConnected == true) return current
+        resetTransport()
+        val next = SSHClient()
+        // Reconnection must re-verify the pinned host key; NEVER disable TOFU.
+        next.addHostKeyVerifier(verifier)
+        next.connectTimeout = 10_000
         try {
-            k.connect(c.host, if (c.port > 0) c.port else 22)
-            k.authPassword(c.user, c.password)
-            val active = k.newSFTPClient()
-            ssh = k
+            next.connect(c.host, if (c.port > 0) c.port else 22)
+            if (c.sftpAuth == SftpAuth.PRIVATE_KEY) {
+                require(c.privateKeyPem.isNotBlank()) { "No private key imported for this connection" }
+                val passphrase = c.keyPassphrase.toCharArray()
+                try {
+                    val finder = if (passphrase.isNotEmpty()) PasswordUtils.createOneOff(passphrase) else null
+                    next.authPublickey(c.user, next.loadKeys(c.privateKeyPem, null, finder))
+                } finally {
+                    passphrase.fill(0.toChar())
+                }
+            } else {
+                next.authPassword(c.user, c.password)
+            }
+            val active = next.newSFTPClient()
+            ssh = next
             sftp = active
             return active
         } catch (t: Throwable) {
-            runCatching { k.disconnect() }
+            runCatching { next.disconnect() }
             throw t
         }
     }
@@ -109,38 +128,65 @@ class SftpFs(c: Connection, ctx: Context) : NetworkFs(c) {
         FsEntry(path.substringAfterLast('/'), path, a.type == FileMode.Type.DIRECTORY, a.size)
     }.getOrNull()
 
-    override fun open(path: String): RangeFile {
-        // Browsing and playback must not share the same SFTP channel.
-        // ExoPlayer may still be closing a previous MKV while the UI lists
-        // another folder or opens the next file.
+    private class Handle(val remote: RemoteFile, val channel: SFTPClient, val length: Long) {
+        fun close() {
+            try { remote.close() } finally { channel.close() }
+        }
+    }
+
+    private fun openHandle(path: String): Handle {
         val channel = synchronized(this) {
-            client() // Ensure that the authenticated SSH transport is alive.
+            client()
             requireNotNull(ssh).newSFTPClient()
         }
         try {
-            val rf: RemoteFile = channel.open(path)
+            val remote = channel.open(path)
             try {
-                val fileSize = rf.length()
-                return object : RangeFile {
-                    override val size = fileSize
-                    override fun read(pos: Long, buf: ByteArray, off: Int, len: Int) =
-                        rf.read(pos, buf, off, len)
-
-                    override fun close() {
-                        try {
-                            rf.close()
-                        } finally {
-                            channel.close()
-                        }
-                    }
-                }
+                return Handle(remote, channel, remote.length())
             } catch (t: Throwable) {
-                runCatching { rf.close() }
+                runCatching { remote.close() }
                 throw t
             }
         } catch (t: Throwable) {
             runCatching { channel.close() }
             throw t
+        }
+    }
+
+    override fun open(path: String): RangeFile {
+        // A dedicated channel per file prevents reads from racing with browse/other videos.
+        var handle = openHandle(path)
+        val initialSize = handle.length
+        var retriesLeft = 1
+        var closed = false
+        return object : RangeFile {
+            override val size: Long = initialSize
+
+            @Synchronized
+            override fun read(pos: Long, buf: ByteArray, off: Int, len: Int): Int {
+                check(!closed) { "SFTP file already closed" }
+                try {
+                    return handle.remote.read(pos, buf, off, len)
+                } catch (original: java.io.IOException) {
+                    if (retriesLeft-- <= 0) throw original
+                    // Bounded, once-per-file recovery for transport read failures.
+                    // Authentication failure or changed host key aborts immediately.
+                    runCatching { handle.close() }
+                    synchronized(this@SftpFs) { resetTransport() }
+                    Thread.sleep(350)
+                    handle = openHandle(path)
+                    if (handle.length != initialSize)
+                        throw java.io.IOException("Remote file changed during SFTP reconnect")
+                    return handle.remote.read(pos, buf, off, len)
+                }
+            }
+
+            @Synchronized
+            override fun close() {
+                if (closed) return
+                closed = true
+                handle.close()
+            }
         }
     }
 }
