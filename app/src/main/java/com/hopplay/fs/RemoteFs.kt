@@ -40,6 +40,7 @@ object MediaTypes {
 
     fun ext(name: String) = name.substringAfterLast('.', "").lowercase()
     fun isPlayable(name: String) = ext(name).let { it in video || it in audio }
+    fun isAudio(name: String) = ext(name) in audio
     fun subtitleMime(name: String): String? = subs[ext(name)]
 }
 
