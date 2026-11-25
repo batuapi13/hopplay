@@ -170,7 +170,7 @@ fun VlcPlayerScreen(
     // Auto-hide: restarts on any interaction; never hides while paused, in a dialog, or on a problem state.
     val stickyState = session.state != PlayState.PLAYING
     LaunchedEffect(controlsVisible, interaction, dialog, stickyState) {
-        if (controlsVisible && !tvRemote && dialog == Dialog.NONE && !stickyState) {
+        if (controlsVisible && dialog == Dialog.NONE && !stickyState) {
             delay(CONTROLS_AUTO_HIDE_MS)
             controlsVisible = false
         }
@@ -351,8 +351,9 @@ fun VlcPlayerScreen(
     // actionable menu button. Revealing the overlay alone leaves the D-pad
     // trapped on the video surface.
     LaunchedEffect(tvRemote, controlsVisible, dialog) {
-        if (tvRemote && controlsVisible && dialog == Dialog.NONE && !locked) {
-            tvMenuFocus.requestFocus()
+        if (tvRemote && dialog == Dialog.NONE && !locked) {
+            if (controlsVisible) tvMenuFocus.requestFocus()
+            else remoteFocus.requestFocus()
         }
     }
     Box(
@@ -363,6 +364,16 @@ fun VlcPlayerScreen(
                     if (event.type != KeyEventType.KeyDown || dialog != Dialog.NONE) {
                         false
                     } else {
+                        // Every D-pad press refreshes the idle timer, including presses
+                        // handled by a focused menu button rather than this root.
+                        if (controlsVisible && event.nativeKeyEvent.keyCode in listOf(
+                                AndroidKeyEvent.KEYCODE_DPAD_UP,
+                                AndroidKeyEvent.KEYCODE_DPAD_DOWN,
+                                AndroidKeyEvent.KEYCODE_DPAD_LEFT,
+                                AndroidKeyEvent.KEYCODE_DPAD_RIGHT,
+                                AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+                                AndroidKeyEvent.KEYCODE_ENTER,
+                            )) poke()
                         when (event.nativeKeyEvent.keyCode) {
                             AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                             AndroidKeyEvent.KEYCODE_MEDIA_PLAY,
