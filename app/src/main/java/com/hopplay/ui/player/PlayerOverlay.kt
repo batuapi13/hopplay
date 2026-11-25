@@ -1,6 +1,7 @@
 package com.hopplay.ui.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +39,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
@@ -49,8 +52,22 @@ import com.hopplay.player.OrientationMode
 import com.hopplay.player.formatTime
 
 @Composable
-private fun BarIcon(icon: ImageVector, description: String, enabled: Boolean = true, size: Int = 48, onClick: () -> Unit) {
-    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(size.dp)) {
+private fun BarIcon(
+    icon: ImageVector,
+    description: String,
+    enabled: Boolean = true,
+    size: Int = 48,
+    focusRequester: androidx.compose.ui.focus.FocusRequester? = null,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    IconButton(
+        onClick = onClick, enabled = enabled,
+        modifier = Modifier.size(size.dp)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { focused = it.isFocused }
+            .then(if (focused) Modifier.border(2.dp, MaterialTheme.colorScheme.primary) else Modifier),
+    ) {
         Icon(icon, contentDescription = description, tint = if (enabled) Color.White else Color.White.copy(alpha = 0.35f))
     }
 }
@@ -69,6 +86,7 @@ fun PlayerTopBar(
     onQueue: () -> Unit,
     onMediaInfo: () -> Unit,
     onLock: () -> Unit,
+    tvInitialFocus: androidx.compose.ui.focus.FocusRequester? = null,
     modifier: Modifier = Modifier,
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -79,7 +97,7 @@ fun PlayerTopBar(
             .padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BarIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
+        BarIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", focusRequester = tvInitialFocus, onClick = onBack)
         Text(
             title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
