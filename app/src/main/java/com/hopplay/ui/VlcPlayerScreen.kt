@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.os.Build
+import android.content.res.Configuration
+import android.view.KeyEvent as AndroidKeyEvent
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -42,6 +44,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.composed
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -95,6 +104,13 @@ fun VlcPlayerScreen(
 ) {
     val ctx = LocalContext.current
     val activity = ctx as Activity
+    val tvRemote = remember(ctx) {
+        (ctx.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+            Configuration.UI_MODE_TYPE_TELEVISION
+    }
+    val remoteFocus = remember { FocusRequester() }
+    val tvMenuFocus = remember { FocusRequester() }
+
     val app = ctx.applicationContext as HopPlayApp
     val diagnostics = remember(connection.id) { PlaybackDiagnostics() }
     val bridge = remember(connection.id, files) {
@@ -325,7 +341,89 @@ fun VlcPlayerScreen(
         )
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    // TV remotes are not touchscreens. Keep LEFT/RIGHT seek and OK/play-pause
+    // available when player controls are hidden. D-pad navigation remains
+    // available to buttons and dialogs while the overlay is displayed.
+    LaunchedEffect(tvRemote) {
+        if (tvRemote) remoteFocus.requestFocus()
+    }
+    // Explicitly transfer focus from the full-screen VLC surface to the first
+    // actionable menu button. Revealing the overlay alone leaves the D-pad
+    // trapped on the video surface.
+    LaunchedEffect(tvRemote, controlsVisible, dialog) {
+        if (tvRemote && dialog == Dialog.NONE && !locked) {
+            if (controlsVisible) tvMenuFocus.requestFocus()
+            else remoteFocus.requestFocus()
+        }
+    }
+    Box(
+        Modifier.fillMaxSize().background(Color.Black)
+            .then(if (tvRemote) Modifier
+                .focusRequester(remoteFocus)
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown || dialog != Dialog.NONE) {
+                        false
+                    } else {
+                        // Every D-pad press refreshes the idle timer, including presses
+                        // handled by a focused menu button rather than this root.
+                        if (controlsVisible && event.nativeKeyEvent.keyCode in listOf(
+                                AndroidKeyEvent.KEYCODE_DPAD_UP,
+                                AndroidKeyEvent.KEYCODE_DPAD_DOWN,
+                                AndroidKeyEvent.KEYCODE_DPAD_LEFT,
+                                AndroidKeyEvent.KEYCODE_DPAD_RIGHT,
+                                AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+                                AndroidKeyEvent.KEYCODE_ENTER,
+                            )) poke()
+                        when (event.nativeKeyEvent.keyCode) {
+                            AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                            AndroidKeyEvent.KEYCODE_MEDIA_PLAY,
+                            AndroidKeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                                session.togglePlay()
+                                controlsVisible = true
+                                poke()
+                                true
+                            }
+                            AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+                            AndroidKeyEvent.KEYCODE_ENTER -> {
+                                if (!controlsVisible) {
+                                    session.togglePlay()
+                                    poke()
+                                    true
+                                } else false
+                            }
+                            AndroidKeyEvent.KEYCODE_DPAD_LEFT,
+                            AndroidKeyEvent.KEYCODE_MEDIA_REWIND -> {
+                                if (!controlsVisible) {
+                                    session.seekBy(-10_000)
+                                    showFeedback("« 10s")
+                                    poke()
+                                    true
+                                } else false
+                            }
+                            AndroidKeyEvent.KEYCODE_DPAD_RIGHT,
+                            AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                                if (!controlsVisible) {
+                                    session.seekBy(10_000)
+                                    showFeedback("10s »")
+                                    poke()
+                                    true
+                                } else false
+                            }
+                            AndroidKeyEvent.KEYCODE_DPAD_UP,
+                            AndroidKeyEvent.KEYCODE_DPAD_DOWN,
+                            AndroidKeyEvent.KEYCODE_MENU -> {
+                                if (!controlsVisible) {
+                                    controlsVisible = true
+                                    poke()
+                                    true
+                                } else false // D-pad moves through real buttons
+                            }
+                            else -> false
+                        }
+                    }
+                }
+                .focusable() else Modifier)
+    ) {
         AndroidView(
             factory = { c -> VLCVideoLayout(c).also { session.attach(it) } },
             modifier = Modifier.fillMaxSize(),
@@ -355,6 +453,7 @@ fun VlcPlayerScreen(
                     onQueue = { dialog = Dialog.QUEUE },
                     onMediaInfo = { dialog = Dialog.INFO },
                     onLock = { locked = true; controlsVisible = false },
+                    tvInitialFocus = if (tvRemote) tvMenuFocus else null,
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
                 PlayerBottomBar(

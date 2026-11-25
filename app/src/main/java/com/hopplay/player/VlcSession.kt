@@ -40,6 +40,13 @@ class VlcSession(
     startIndex: Int,
 ) {
     private val prefs = ctx.getSharedPreferences("hopplay-subtitles", Context.MODE_PRIVATE)
+    // The TV build has its own package, settings, and decoder preference.
+    // Keep the frozen mobile app on its existing software-decoding baseline.
+    val isTvVariant: Boolean = ctx.packageName == "com.hopplay.tv"
+    private val tvPlaybackPrefs = if (isTvVariant)
+        ctx.getSharedPreferences("hopplay-tv-playback", Context.MODE_PRIVATE) else null
+    var hardwareDecodingEnabled by mutableStateOf(tvPlaybackPrefs?.getBoolean("hardware-decoding", false) == true)
+        private set
     private val vlc = LibVLC(ctx, arrayListOf("--no-video-title-show", "--network-caching=500"))
     val player = MediaPlayer(vlc)
 
@@ -107,14 +114,25 @@ class VlcSession(
         diagnostics.record("VLC open index=$index ext=${currentFile.name.substringAfterLast('.', "")} softwareDecode=true")
         player.stop()
         val media = Media(vlc, Uri.parse(urlFor(index)))
-        // Software decoding is deliberate for Hi10P AVC / Main10 HEVC / MPEG4 AVI.
-        media.setHWDecoderEnabled(false, false)
+        // Hardware acceleration is opt-in for Android TV. LibVLC may fall back
+        // to software on unsupported streams; mobile remains software-only.
+        media.setHWDecoderEnabled(isTvVariant && hardwareDecodingEnabled, false)
         media.addOption(":network-caching=500")
         media.addOption(":freetype-rel-fontsize=${subtitleSize.relFontSize}")
         media.addOption(":freetype-color=${subtitleColor.rgb}")
         player.media = media
         media.release()
         player.play()
+    }
+
+    /** Apply the TV decoder preference to the current file without losing resume. */
+    fun setHardwareDecoding(enabled: Boolean) {
+        if (!isTvVariant || hardwareDecodingEnabled == enabled) return
+        val resumeAt = positionMs.takeIf { it > 0 }
+        hardwareDecodingEnabled = enabled
+        tvPlaybackPrefs?.edit()?.putBoolean("hardware-decoding", enabled)?.apply()
+        diagnostics.record("TV decoder preference=" + if (enabled) "hardware" else "software")
+        load(index, resumeAt)
     }
 
     fun retry() = load(index, positionMs.takeIf { it > 0 })

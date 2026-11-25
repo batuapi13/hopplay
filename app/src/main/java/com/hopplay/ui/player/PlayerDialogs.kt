@@ -95,6 +95,26 @@ fun SettingsDialog(
         title = { Text("Playback settings") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (session.isTvVariant) {
+                    SectionLabel("Video decoding (TV only)")
+                    Text(
+                        "Switching the decoder reopens this video at the current position. " +
+                            "Hardware may improve playback; use software for unsupported video formats.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = !session.hardwareDecodingEnabled,
+                            onClick = { session.setHardwareDecoding(false) },
+                            label = { Text("Software") },
+                        )
+                        FilterChip(
+                            selected = session.hardwareDecodingEnabled,
+                            onClick = { session.setHardwareDecoding(true) },
+                            label = { Text("Hardware") },
+                        )
+                    }
+                }
                 SectionLabel("Speed")
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     SPEED_OPTIONS.forEach { s ->
