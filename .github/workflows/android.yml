@@ -2,7 +2,7 @@ name: Android debug build
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/android-tv-remote']
   pull_request:
 
 jobs:
@@ -18,11 +18,11 @@ jobs:
         with:
           gradle-version: 8.9
       - name: Run JVM unit tests
-        run: gradle --no-daemon testDebugUnitTest
+        run: gradle --no-daemon testMobileDebugUnitTest testTvDebugUnitTest
       # PRs compile with ephemeral debug keys for validation only. They never
       # publish installable update artifacts. Main uses one persisted keystore.
       - name: Restore persistent app signing identity
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/android-tv-remote') && github.event_name == 'push'
         env:
           KEYSTORE_BASE64: ${{ secrets.HOPPLAY_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.HOPPLAY_STORE_PASSWORD }}
@@ -42,33 +42,48 @@ jobs:
           echo "HOPPLAY_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
           echo "HOPPLAY_BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
       - name: Assemble FFmpeg-enabled debug APK
-        run: gradle --no-daemon assembleDebug -Pffmpeg=true
+        run: gradle --no-daemon assembleMobileDebug assembleTvDebug -Pffmpeg=true
       - name: Verify both architecture APKs exist
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/android-tv-remote') && github.event_name == 'push'
         run: |
           set -euo pipefail
-          ls -lh app/build/outputs/apk/debug/
-          test -s app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk
-          test -s app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+          ls -lh app/build/outputs/apk/mobile/debug/
+          test -s app/build/outputs/apk/mobile/debug/app-mobile-armeabi-v7a-debug.apk
+          test -s app/build/outputs/apk/mobile/debug/app-mobile-arm64-v8a-debug.apk
       - name: Upload ARM32 APK
         uses: actions/upload-artifact@v4
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/android-tv-remote') && github.event_name == 'push'
         with:
-          name: hopplay-armeabi-v7a-apk
-          path: app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk
+          name: hopplay-armeabi-v7a-apk-tv-preview
+          path: app/build/outputs/apk/mobile/debug/app-mobile-armeabi-v7a-debug.apk
           if-no-files-found: error
       - name: Upload ARM64 APK
         uses: actions/upload-artifact@v4
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/android-tv-remote') && github.event_name == 'push'
         with:
-          name: hopplay-arm64-v8a-apk
-          path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+          name: hopplay-arm64-v8a-apk-tv-preview
+          path: app/build/outputs/apk/mobile/debug/app-mobile-arm64-v8a-debug.apk
+          if-no-files-found: error
+
+      - name: Upload TV ARM32 APK
+        uses: actions/upload-artifact@v4
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/android-tv-remote') && github.event_name == 'push'
+        with:
+          name: hopplay-tv-armeabi-v7a-apk
+          path: app/build/outputs/apk/tv/debug/app-tv-armeabi-v7a-debug.apk
+          if-no-files-found: error
+      - name: Upload TV ARM64 APK
+        uses: actions/upload-artifact@v4
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/android-tv-remote') && github.event_name == 'push'
+        with:
+          name: hopplay-tv-arm64-v8a-apk
+          path: app/build/outputs/apk/tv/debug/app-tv-arm64-v8a-debug.apk
           if-no-files-found: error
 
   release:
     # Only publish after the signed ARM32 and ARM64 builds and tests pass on main.
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: false # TV candidate is test-only; do not publish or alter existing GitHub Releases.
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -77,12 +92,12 @@ jobs:
       - name: Download ARM32 APK
         uses: actions/download-artifact@v4
         with:
-          name: hopplay-armeabi-v7a-apk
+          name: hopplay-armeabi-v7a-apk-tv-preview
           path: dist/arm32
       - name: Download ARM64 APK
         uses: actions/download-artifact@v4
         with:
-          name: hopplay-arm64-v8a-apk
+          name: hopplay-arm64-v8a-apk-tv-preview
           path: dist/arm64
       - name: Publish updated GitHub Release
         env:
@@ -93,10 +108,10 @@ jobs:
           VERSION=$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
           test -n "$VERSION"
           TAG="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
-          test -s dist/arm32/app-armeabi-v7a-debug.apk
-          test -s dist/arm64/app-arm64-v8a-debug.apk
-          cp dist/arm32/app-armeabi-v7a-debug.apk "HopPlay-${TAG}-armeabi-v7a.apk"
-          cp dist/arm64/app-arm64-v8a-debug.apk "HopPlay-${TAG}-arm64-v8a.apk"
+          test -s dist/arm32/app-mobile-armeabi-v7a-debug.apk
+          test -s dist/arm64/app-mobile-arm64-v8a-debug.apk
+          cp dist/arm32/app-mobile-armeabi-v7a-debug.apk "HopPlay-${TAG}-armeabi-v7a.apk"
+          cp dist/arm64/app-mobile-arm64-v8a-debug.apk "HopPlay-${TAG}-arm64-v8a.apk"
           sha256sum "HopPlay-${TAG}-armeabi-v7a.apk" "HopPlay-${TAG}-arm64-v8a.apk" > SHA256SUMS.txt
           if gh release view "$TAG" >/dev/null 2>&1; then
             # A workflow rerun must update the same tag, not create a second release.
