@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # TV preview prerelease publishing on trusted branch only
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -52,33 +54,43 @@ jobs:
           test -s app/build/outputs/apk/mobile/debug/app-mobile-arm64-v8a-debug.apk
       - name: Upload ARM32 APK
         uses: actions/upload-artifact@v4
-        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/android-tv-remote') && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         with:
           name: hopplay-armeabi-v7a-apk-tv-preview
           path: app/build/outputs/apk/mobile/debug/app-mobile-armeabi-v7a-debug.apk
           if-no-files-found: error
       - name: Upload ARM64 APK
         uses: actions/upload-artifact@v4
-        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/android-tv-remote') && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         with:
           name: hopplay-arm64-v8a-apk-tv-preview
           path: app/build/outputs/apk/mobile/debug/app-mobile-arm64-v8a-debug.apk
           if-no-files-found: error
 
-      - name: Upload TV ARM32 APK
-        uses: actions/upload-artifact@v4
-        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/android-tv-remote') && github.event_name == 'push'
-        with:
-          name: hopplay-tv-armeabi-v7a-apk
-          path: app/build/outputs/apk/tv/debug/app-tv-armeabi-v7a-debug.apk
-          if-no-files-found: error
-      - name: Upload TV ARM64 APK
-        uses: actions/upload-artifact@v4
-        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/android-tv-remote') && github.event_name == 'push'
-        with:
-          name: hopplay-tv-arm64-v8a-apk
-          path: app/build/outputs/apk/tv/debug/app-tv-arm64-v8a-debug.apk
-          if-no-files-found: error
+      - name: Publish signed TV test APKs as a GitHub prerelease
+        if: github.ref == 'refs/heads/feature/android-tv-remote' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ARM32=app/build/outputs/apk/tv/debug/app-tv-armeabi-v7a-debug.apk
+          ARM64=app/build/outputs/apk/tv/debug/app-tv-arm64-v8a-debug.apk
+          test -s "$ARM32"
+          test -s "$ARM64"
+          TAG="tv-preview-build.${GITHUB_RUN_NUMBER}"
+          cp "$ARM32" "HopPlay-TV-${TAG}-armeabi-v7a.apk"
+          cp "$ARM64" "HopPlay-TV-${TAG}-arm64-v8a.apk"
+          sha256sum HopPlay-TV-*.apk > SHA256SUMS.txt
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" HopPlay-TV-*.apk SHA256SUMS.txt --clobber
+          else
+            gh release create "$TAG" HopPlay-TV-*.apk SHA256SUMS.txt \
+              --target "$GITHUB_SHA" \
+              --title "HopPlay TV preview (build ${GITHUB_RUN_NUMBER})" \
+              --notes "TEST ONLY: remote-control prototype. Separate com.hopplay.tv package; phone/tablet v0.3.1 is unchanged." \
+              --prerelease
+          fi
 
   release:
     # Only publish after the signed ARM32 and ARM64 builds and tests pass on main.
